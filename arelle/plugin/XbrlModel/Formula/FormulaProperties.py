@@ -1271,11 +1271,11 @@ def _relationshipProp(nav, propName: str, args, ctx) -> FormulaValue:
     """Properties of a relationship as reached by navigation.
 
     `nav` is a FormulaNavigate.NavRelationship, which carries the traversal
-    context (container, cube, depth) alongside the XbrlRelationship, because the
-    same relationship reached two ways answers these differently.
+    context (the network or domain network holding the relationship, the cube,
+    the depth) alongside the XbrlRelationship, because the same relationship
+    reached two ways answers these differently.
     """
     from XbrlModel.XbrlDimension import XbrlDomainNetwork
-    from .FormulaNavigate import _domainMemberQn
 
     rel = nav.rel
     container = nav.container
@@ -1296,14 +1296,15 @@ def _relationshipProp(nav, propName: str, args, ctx) -> FormulaValue:
         return FormulaValue(FormulaValueType.RELATIONSHIP, nav)
 
     if propName in ("relationshipType", "relationship-type"):
+        # A domain network declares no relationship type, so a relationship it
+        # holds is untyped -- there is nothing to resolve.
         if isinstance(container, XbrlDomainNetwork):
-            # xbrl:domain-member has no relationship type object to resolve.
             return NONE_VALUE
         rt = getattr(container, "relationshipType", None)
         return FormulaValue(FormulaValueType.RELATIONSHIP_TYPE, rt) if rt is not None else NONE_VALUE
     if propName in ("relationshipTypeName", "relationship-type-name"):
         if isinstance(container, XbrlDomainNetwork):
-            return FormulaValue(FormulaValueType.QNAME, _domainMemberQn(mdl))
+            return NONE_VALUE
         rtn = getattr(container, "relationshipTypeName", None)
         return FormulaValue(FormulaValueType.QNAME, rtn) if rtn is not None else NONE_VALUE
 
@@ -1313,10 +1314,6 @@ def _relationshipProp(nav, propName: str, args, ctx) -> FormulaValue:
     if propName in ("domainNetwork", "domain-network"):
         return (FormulaValue(FormulaValueType.DOMAIN_NETWORK, container)
                 if isinstance(container, XbrlDomainNetwork) else NONE_VALUE)
-    if propName == "container":
-        vtype = (FormulaValueType.DOMAIN_NETWORK if isinstance(container, XbrlDomainNetwork)
-                 else FormulaValueType.NETWORK)
-        return FormulaValue(vtype, container)
     if propName in ("group", "groups"):
         grps = _groupsOf(mdl, getattr(container, "name", None))
         if propName == "group":
@@ -1444,9 +1441,10 @@ def _domainNetworkProp(dom, propName: str, args, ctx) -> FormulaValue:
         if propName == "member-names":
             return _wrapSet(qns)
         return FormulaValue(FormulaValueType.SET, OrderedSet(_objValue(mdl, q) for q in qns))
-    if propName in ("relationshipTypeName", "relationship-type-name"):
-        from .FormulaNavigate import _domainMemberQn
-        return FormulaValue(FormulaValueType.QNAME, _domainMemberQn(mdl))
+    if propName in ("relationshipTypeName", "relationship-type-name",
+                    "relationshipType"):
+        # A domain network declares no relationship type.
+        return NONE_VALUE
     if propName in ("group", "groups"):
         grps = _groupsOf(mdl, getattr(dom, "name", None))
         if propName == "group":

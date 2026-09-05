@@ -455,8 +455,7 @@ def _buildGrammar():
     _navReturns = Group(
         Suppress(returnKw)
         + Opt(Suppress(byKw)
-              + (containersKw | CaselessKeyword("container") | networkKw | groupKw)
-              .setResultsName("by"))
+              + (networkKw | domainKw | groupKw).setResultsName("by"))
         + Opt((listKw | setKw).setResultsName("collection"))
         + Opt(pathsKw.setResultsName("paths"))
         + Opt(Group(_navReturnComponents).setResultsName("components"))
@@ -475,7 +474,7 @@ def _buildGrammar():
         | (Suppress(toKw) + expr.setResultsName("toValue"))
         | (Suppress(stopKw) + Suppress(whenKw) + expr.setResultsName("stopExpr"))
         | _navScope
-        | (Suppress(acrossKw) + Suppress(containersKw | networksKw))
+        | (Suppress(acrossKw) + Suppress(networksKw | containersKw))
             .setParseAction(lambda: True).setResultsName("acrossContainers")
         | (Suppress(modelKw) + expr.setResultsName("modelValue"))
         | (Suppress(whereKw) + expr.setResultsName("whereExpr"))

@@ -4,14 +4,17 @@ FormulaNavigate.py - model navigation for the Tavi Query and Rules Language.
 Implements the `navigate` expression specified in
 `oim/specifications/tavi-formula/tavi-formula.md`, section "Model Navigation".
 
-Navigation traverses XbrlRelationship objects, which live in exactly one
-*relationship container*: an XbrlNetwork (relationships of one declared
-relationship type) or an XbrlDomainNetwork (relationships of the implicit type
-xbrl:domain-member).  Everything else a navigate query names -- a group, a cube
--- selects containers rather than being traversed itself.  There is deliberately
-no dimensional-navigation mode: a cube's structure is held in cube dimension
-objects, which are properties, so `cube` scope resolves to the domain networks
-those cube dimensions reference.
+Navigation traverses XbrlRelationship objects.  A relationship belongs to exactly
+one XbrlNetwork -- which declares a relationship type -- or one XbrlDomainNetwork,
+which declares none: a domain relationship is untyped, and what it means is fixed
+by the domain network it is in.  The two are different objects, not two kinds of
+one thing, so a relationship type selects networks only and a domain network is
+named through `domain` or `cube` scope.  Everything else a navigate query names --
+a group, a cube -- selects them rather than being traversed itself.
+
+There is deliberately no dimensional-navigation mode: a cube's structure is held
+in cube dimension objects, which are properties, so `cube` scope resolves to the
+domain networks those cube dimensions reference.
 
 See COPYRIGHT.md for copyright information.
 """
@@ -26,8 +29,15 @@ from ordered_set import OrderedSet
 from .FormulaValue import FormulaValue, FormulaValueType, NONE_VALUE
 
 
-class FormulaNavigateError(Exception):
-    """Raised for a malformed or unsatisfiable navigate query."""
+from .FormulaValue import FormulaRuntimeError
+
+
+class FormulaNavigateError(FormulaRuntimeError):
+    """Raised for a malformed or unsatisfiable navigate query.
+
+    A subclass of FormulaRuntimeError so that it is reported as an evaluation
+    error like any other error in a rule, rather than as an unexpected one.
+    """
 
 
 # Relationships whose source is xbrl:rootSource anchor a network's roots.  They
@@ -36,17 +46,6 @@ class FormulaNavigateError(Exception):
 def _rootSourceQn() -> QName:
     from XbrlModel.XbrlConst import qnXbrlRootSource
     return qnXbrlRootSource
-
-
-def _domainMemberQn(mdl) -> QName:
-    """The implicit relationship type QName of a domain network's relationships.
-
-    xbrl:domain-member has no relationship type object in the built-in model, so
-    it cannot be resolved through namedObjects; it is constructed against the
-    model's own xbrl namespace so that it compares equal to a QName a rule wrote.
-    """
-    from XbrlModel.XbrlConst import xbrl
-    return qname(xbrl, "xbrl:domain-member")
 
 
 DIRECTIONS = frozenset((
@@ -203,20 +202,15 @@ def selectContainers(ctx, scopeKind: Optional[str], scopeValue: Optional[Formula
     raise FormulaNavigateError(f"Unknown navigation scope {scopeKind!r}")
 
 
-def _containerRelationshipType(container, mdl) -> Optional[QName]:
-    from XbrlModel.XbrlDimension import XbrlDomainNetwork
-    if isinstance(container, XbrlDomainNetwork):
-        return _domainMemberQn(mdl)
-    return getattr(container, "relationshipTypeName", None)
-
-
 def _relationshipTypeMatches(container, wanted: Optional[set], mdl) -> bool:
+    """Whether a network's declared relationship type is one of those wanted.
+
+    A domain network declares none, so a relationship type never selects one:
+    it is named through `domain` or `cube` scope instead.
+    """
     if not wanted:
         return True
-    rtn = _containerRelationshipType(container, mdl)
-    if rtn is None:
-        return False
-    return rtn in wanted
+    return getattr(container, "relationshipTypeName", None) in wanted
 
 
 # ---------------------------------------------------------------------------
@@ -246,13 +240,13 @@ def _roots(mdl, container) -> List[QName]:
 # ---------------------------------------------------------------------------
 # Traversal
 #
-# Traversal runs over an *index* of source QName -> [(relationship, container,
-# cube, cubeDimension)] rather than over a container directly.  By default one
-# index is built per container, so a path stays inside the container it started
-# in.  With `across containers` a single index is built over every container in
-# scope and the traversal runs once over the union -- traversing each container
-# separately and merging afterwards would revisit the same relationship once per
-# container it could be reached from.
+# Traversal runs over an *index* of source QName -> [(relationship, holder, cube,
+# cubeDimension)] rather than over a network directly, where the holder is the
+# network or domain network the relationship belongs to.  By default one index is
+# built per holder, so a path stays inside the one it started in.  With `across
+# networks` a single index is built over every network in scope and the traversal
+# runs once over the union -- traversing each separately and merging afterwards
+# would revisit the same relationship once per network it could be reached from.
 # ---------------------------------------------------------------------------
 
 def _buildIndex(mdl, containers, forward=True) -> Dict[QName, List[tuple]]:
@@ -336,6 +330,13 @@ def navigate(ctx, spec: Dict[str, Any]) -> List[NavRelationship]:
         raise FormulaNavigateError(f"Unknown navigation direction {direction!r}")
 
     wantedTypes = set(_asQNames(spec["relationshipType"])) if spec.get("relationshipType") is not None else None
+    if wantedTypes and spec.get("scopeKind") in ("domain", "cube"):
+        # A relationship type selects networks; domain and cube scope select
+        # domain networks, which declare none. Silently selecting nothing would
+        # hide the mistake.
+        raise FormulaNavigateError(
+            "A relationship type selects networks, which "
+            f"{spec['scopeKind']} scope contains none of.")
     containers = selectContainers(ctx, spec.get("scopeKind"), spec.get("scopeValue"),
                                   spec.get("dimensionValue"), mdl)
     containers = [(c, cube, cd) for (c, cube, cd) in containers
@@ -349,8 +350,9 @@ def navigate(ctx, spec: Dict[str, Any]) -> List[NavRelationship]:
     includeStart = bool(spec.get("includeStart"))
 
     results: List[NavRelationship] = []
-    # `across containers` traverses the in-scope containers as one graph;
-    # otherwise each container is traversed on its own.
+    # `across networks` traverses the in-scope networks as one graph; otherwise
+    # each is traversed on its own. Domain networks are never crossed: two domain
+    # networks are two separate hierarchies.
     containerGroups = [containers] if acrossContainers else [[c] for c in containers]
 
     for group in containerGroups:

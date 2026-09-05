@@ -2119,7 +2119,7 @@ def _buildMessage(rule, result: FormulaValue, ctx: FormulaRuleContext) -> str:
 _NAV_COMPONENTS = frozenset((
     "source", "source-name", "target", "target-name", "order",
     "relationship", "relationshipType", "relationshipTypeName",
-    "network", "domainNetwork", "container", "group",
+    "network", "domainNetwork", "group",
     "cube", "dimension", "cubeDimension",
     "cycle", "navigation-depth", "navigation-order", "result-order",
 ))
@@ -2312,8 +2312,8 @@ def _navResult(navs, returns, ctx) -> FormulaValue:
     if by:
         buckets: dict = {}
         for nav, item in zip(navs, items):
-            keyName = {"containers": "container", "container": "container",
-                       "network": "network", "group": "group"}.get(by, "container")
+            keyName = {"network": "network", "domain": "domainNetwork",
+                       "group": "group"}.get(by, "network")
             key = _navComponentValue(nav, keyName, None, ctx)
             if key.type == FormulaValueType.NONE:
                 continue
