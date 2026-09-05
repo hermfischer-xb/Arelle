@@ -106,6 +106,17 @@ def validateFinished(val, *args, **kwargs):
     options   = {}
     cntlr     = getattr(val, "cntlr", None) or getattr(modelXbrl, "modelManager", None)
 
+    # Relationship constraints are expressions in this language, so they are
+    # evaluated here rather than in the model validator: without the query
+    # language there is nothing to evaluate them with.
+    try:
+        from .FormulaConstraints import validateRelationshipConstraints
+        validateRelationshipConstraints(modelXbrl, cntlr=cntlr)
+    except Exception as exc:  # a constraint must not abort model validation
+        modelXbrl.error("taviqe:constraintEvaluationFailed",
+                        _("Relationship constraints could not be evaluated: %(error)s"),
+                        error=str(exc))
+
     # Pull from formula parameters (when invoked from a testcase)
     if val.parameters:
         for paramQName, p in val.parameters.items():
