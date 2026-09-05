@@ -740,7 +740,7 @@ def _conceptProp(concept, propName: str, args, ctx) -> FormulaValue:
             if argVal.type != FormulaValueType.QNAME:
                 raise FormulaRuntimeError(
                     f"The argument for the 'attribute' property must be a qname, "
-                    f"found '{argVal.type.name.lower()}'")
+                    f"found '{_typeNameOf(argVal)}'")
         raise FormulaRuntimeError(
             f"Property {propName!r} is not a property of a 'concept'.")
     raise FormulaRuntimeError(f"{propName!r} is not a valid property.")
@@ -1553,10 +1553,14 @@ def _cubeDimensionProp(cd, propName: str, args, ctx) -> FormulaValue:
 # ---------------------------------------------------------------------------
 
 
+# The names the language uses for its types, as the Properties appendix of
+# tavi-formula.md lists them. This is the single source: diagnostics naming a
+# type use it too (FormulaFunctions._typeName), so a message and the `_type`
+# property cannot disagree.
 _TYPE_NAMES = {
     FormulaValueType.NONE:       "none",
     FormulaValueType.SKIP:       "skip",
-    FormulaValueType.BOOLEAN:    "boolean",
+    FormulaValueType.BOOLEAN:    "bool",
     FormulaValueType.INTEGER:    "int",
     FormulaValueType.FLOAT:      "float",
     FormulaValueType.DECIMAL:    "decimal",
@@ -1848,7 +1852,7 @@ def getProperty(
         if propName == "repeat":
             if obj.type == FormulaValueType.INTEGER:
                 raise FormulaRuntimeError("'int' object has no attribute 'replace'")
-            raise FormulaRuntimeError(f"Property 'repeat' is not a property of a '{obj.type.name.lower()}'.")
+            raise FormulaRuntimeError(f"Property 'repeat' is not a property of a '{_typeNameOf(obj)}'.")
         if propName == "split":
             raise FormulaRuntimeError("'int' object has no attribute 'split'")
         if propName in ("abs", "log10", "decimal", "int", "signum"):
@@ -2008,15 +2012,15 @@ def getProperty(
             if obj.type != FormulaValueType.LIST:
                 raise FormulaRuntimeError(
                     "The 'index' property or index expression '[]' can only operate on a list or dictionary, "
-                    f"found '{obj.type.name.lower()}'"
+                    f"found '{_typeNameOf(obj)}'"
                 )
             indexVal = args[0]
             if not indexVal.isNumeric:
-                raise FormulaRuntimeError(f"Index of a list must be a number, found {indexVal.type.name.lower()}")
+                raise FormulaRuntimeError(f"Index of a list must be a number, found {_typeNameOf(indexVal)}")
             try:
                 oneBasedIdx = int(indexVal.numericValue())
             except Exception as exc:
-                raise FormulaRuntimeError(f"Index of a list must be a number, found {indexVal.type.name.lower()}") from exc
+                raise FormulaRuntimeError(f"Index of a list must be a number, found {_typeNameOf(indexVal)}") from exc
             items = list(coll)
             if oneBasedIdx < 1 or oneBasedIdx > len(items):
                 raise FormulaRuntimeError(

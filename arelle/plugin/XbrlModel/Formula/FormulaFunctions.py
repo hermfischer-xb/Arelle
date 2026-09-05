@@ -62,14 +62,17 @@ def _unwrapCollection(fv: FormulaValue) -> List[FormulaValue]:
 def _typeName(fv: FormulaValue, capitalizeNone: bool = False) -> str:
     """The type name of a value, as a diagnostic names it.
 
+    Uses the same table as the `_type` property, so that a message and the
+    property cannot disagree: this returned the enum member lowercased, giving
+    "integer" and "boolean" where the language calls them `int` and `bool`.
+
     `capitalizeNone` reproduced the reference Xule implementation's "None" in
     some messages and "none" in others. The language's literal is `none`, so
-    that is what a diagnostic naming the type says; the parameter is kept so
-    call sites need not change, but is now ignored.
+    that is what a diagnostic says; the parameter is kept so that call sites
+    need not change, but is ignored.
     """
-    if fv.type == FormulaValueType.NONE:
-        return "none"
-    return fv.type.name.lower()
+    from .FormulaProperties import _TYPE_NAMES
+    return _TYPE_NAMES.get(fv.type, fv.type.name.lower())
 
 
 def _isInfinityLiteral(fv: FormulaValue) -> bool:
@@ -125,7 +128,7 @@ def _fn_sum(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValue
         raise FormulaRuntimeError("sum() requires exactly one argument")
     if args[0].type not in (FormulaValueType.SET, FormulaValueType.LIST):
         raise FormulaRuntimeError(
-            f"The first argument of function 'sum' must be set, list, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'sum' must be set, list, found '{_typeName(args[0])}'."
         )
 
     def _toPython(v: FormulaValue):
@@ -190,7 +193,7 @@ def _fn_count(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVal
     if arg.type in (FormulaValueType.SET, FormulaValueType.LIST, FormulaValueType.DICT):
         return FormulaValue(FormulaValueType.INTEGER, len(arg.value))
     raise FormulaRuntimeError(
-        f"The first argument of function 'count' must be set, list, found '{arg.type.name.lower()}'."
+        f"The first argument of function 'count' must be set, list, found '{_typeName(arg)}'."
     )
 
 
@@ -400,7 +403,7 @@ def _fn_toSet(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVal
         )
         return FormulaValue(FormulaValueType.SET, items)
     raise FormulaRuntimeError(
-        f"The first argument of function 'to-set' must be list, set, dictionary, found '{arg.type.name.lower()}'."
+        f"The first argument of function 'to-set' must be list, set, dictionary, found '{_typeName(arg)}'."
     )
 
 
@@ -409,7 +412,7 @@ def _fn_first(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVal
         raise FormulaRuntimeError("first() requires an argument")
     if args[0].type not in (FormulaValueType.SET, FormulaValueType.LIST):
         raise FormulaRuntimeError(
-            f"The first argument of function 'first' must be set, list, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'first' must be set, list, found '{_typeName(args[0])}'."
         )
     items = _unwrapCollection(args[0])
     return items[0] if items else NONE_VALUE
@@ -420,7 +423,7 @@ def _fn_last(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValu
         raise FormulaRuntimeError("last() requires an argument")
     if args[0].type not in (FormulaValueType.SET, FormulaValueType.LIST):
         raise FormulaRuntimeError(
-            f"The first argument of function 'last' must be set, list, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'last' must be set, list, found '{_typeName(args[0])}'."
         )
     items = _unwrapCollection(args[0])
     return items[-1] if items else NONE_VALUE
@@ -493,7 +496,7 @@ def _fn_toList(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVa
     if arg.type == FormulaValueType.NONE:
         return FormulaValue(FormulaValueType.LIST, [])
     raise FormulaRuntimeError(
-        f"The first argument of function 'to-list' must be list, set, dictionary, found '{arg.type.name.lower()}'."
+        f"The first argument of function 'to-list' must be list, set, dictionary, found '{_typeName(arg)}'."
     )
 
 
@@ -506,7 +509,7 @@ def _fn_toDict(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVa
         return arg
     if arg.type not in (FormulaValueType.LIST, FormulaValueType.SET):
         raise FormulaRuntimeError(
-            f"The first argument of function 'to-dict' must be list or set, found '{arg.type.name.lower()}'."
+            f"The first argument of function 'to-dict' must be list or set, found '{_typeName(arg)}'."
         )
     result = {}
     for item in arg.value:
@@ -526,7 +529,7 @@ def _fn_union(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVal
     if args[0].type == FormulaValueType.LIST:
         raise FormulaRuntimeError("Property 'union' is not a property of a 'list'.")
     if args[0].type != FormulaValueType.SET:
-        raise FormulaRuntimeError(f"Property 'union' is not a property of a '{args[0].type.name.lower()}'.")
+        raise FormulaRuntimeError(f"Property 'union' is not a property of a '{_typeName(args[0])}'.")
     result = OrderedSet(_unwrapCollection(args[0]))
     for a in args[1:]:
         for item in _unwrapCollection(a):
@@ -1214,7 +1217,7 @@ def _fn_denone(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVa
         ])
     raise FormulaRuntimeError(
         f"The first argument of function 'denone' must be set, list, "
-        f"found {_TYPE_LABEL.get(coll.type, coll.type.name.lower())!r}."
+        f"found {_TYPE_LABEL.get(coll.type, _typeName(coll))!r}."
     )
 
 
@@ -1265,7 +1268,7 @@ def _fn_all(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValue
         raise FormulaRuntimeError("all() requires exactly one argument")
     if args[0].type not in (FormulaValueType.SET, FormulaValueType.LIST):
         raise FormulaRuntimeError(
-            f"The first argument of function 'all' must be set, list, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'all' must be set, list, found '{_typeName(args[0])}'."
         )
     items = _unwrapCollection(args[0])
     result = True
@@ -1277,7 +1280,7 @@ def _fn_all(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValue
             result = False
             continue
         raise FormulaRuntimeError(
-            f"Property all can only operator on booleans, but found '{item.type.name.lower()}'."
+            f"Property all can only operator on booleans, but found '{_typeName(item)}'."
         )
     return FormulaValue(FormulaValueType.BOOLEAN, result)
 
@@ -1288,7 +1291,7 @@ def _fn_any(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValue
         raise FormulaRuntimeError("any() requires exactly one argument")
     if args[0].type not in (FormulaValueType.SET, FormulaValueType.LIST):
         raise FormulaRuntimeError(
-            f"The first argument of function 'any' must be set, list, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'any' must be set, list, found '{_typeName(args[0])}'."
         )
     items = _unwrapCollection(args[0])
     result = False
@@ -1299,7 +1302,7 @@ def _fn_any(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValue
         if item.type == FormulaValueType.SKIP:
             continue
         raise FormulaRuntimeError(
-            f"Property any can only operator on booleans, but found '{item.type.name.lower()}'."
+            f"Property any can only operator on booleans, but found '{_typeName(item)}'."
         )
     return FormulaValue(FormulaValueType.BOOLEAN, result)
 
@@ -1316,7 +1319,7 @@ def _fn_join(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValu
         return FormulaValue(FormulaValueType.STRING, sep.join(parts))
     if source.type not in (FormulaValueType.SET, FormulaValueType.LIST):
         raise FormulaRuntimeError(
-            f"The first argument of function 'join' must be set, list, dictionary, found '{source.type.name.lower()}'."
+            f"The first argument of function 'join' must be set, list, dictionary, found '{_typeName(source)}'."
         )
     items = _unwrapCollection(source)
     from .FormulaInterpreter import _formatValue as _fmt
@@ -1332,7 +1335,7 @@ def _fn_dict(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValu
     for arg in args:
         if arg.type != FormulaValueType.LIST:
             raise FormulaRuntimeError(
-                f"Arguments for the dict() function must be lists of key/value pairs, found {arg.type.name.lower()}"
+                f"Arguments for the dict() function must be lists of key/value pairs, found {_typeName(arg)}"
             )
         pair = list(arg.value)
         if len(pair) != 2:
@@ -1348,7 +1351,7 @@ def _fn_keys(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValu
         raise FormulaRuntimeError("keys() requires exactly one argument")
     if args[0].type != FormulaValueType.DICT:
         raise FormulaRuntimeError(
-            f"The first argument of function 'keys' must be dictionary, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'keys' must be dictionary, found '{_typeName(args[0])}'."
         )
     return FormulaValue(FormulaValueType.SET, OrderedSet(args[0].value.keys()))
 
@@ -1359,7 +1362,7 @@ def _fn_values(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVa
         raise FormulaRuntimeError("values() requires exactly one argument")
     if args[0].type != FormulaValueType.DICT:
         raise FormulaRuntimeError(
-            f"The first argument of function 'values' must be dictionary, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'values' must be dictionary, found '{_typeName(args[0])}'."
         )
     return FormulaValue(FormulaValueType.LIST, list(args[0].value.values()))
 
@@ -1370,7 +1373,7 @@ def _fn_hasKey(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVa
         raise FormulaRuntimeError("has-key() requires two arguments")
     if args[0].type != FormulaValueType.DICT:
         raise FormulaRuntimeError(
-            f"The first argument of function 'has-key' must be dictionary, found '{args[0].type.name.lower()}'."
+            f"The first argument of function 'has-key' must be dictionary, found '{_typeName(args[0])}'."
         )
     return FormulaValue(FormulaValueType.BOOLEAN, args[1] in args[0].value)
 
@@ -1503,7 +1506,7 @@ def _fn_date(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValu
         return arg
     if arg.type != FormulaValueType.STRING:
         raise FormulaRuntimeError(
-            f"The first argument of function 'date' must be string, instant, found '{arg.type.name.lower()}'"
+            f"The first argument of function 'date' must be string, instant, found '{_typeName(arg)}'"
         )
     try:
         return FormulaValue(FormulaValueType.DATE, InstantValue(parse_date_string(str(arg.value))))
@@ -1521,7 +1524,7 @@ def _fn_duration(args: List[FormulaValue], ctx: "FormulaRuleContext") -> Formula
         if a.type == FormulaValueType.STRING:
             return parse_date_string(str(a.value))
         raise FormulaRuntimeError(
-            f"Property 'date' requires a string or an instant argument, found '{a.type.name.lower()}'"
+            f"Property 'date' requires a string or an instant argument, found '{_typeName(a)}'"
         )
 
     start = _to_dt(args[0])
@@ -1543,7 +1546,7 @@ def _fn_forever(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaV
 def _extract_instant(arg: FormulaValue, fn_name: str) -> InstantValue:
     if arg.type != FormulaValueType.DATE:
         raise FormulaRuntimeError(
-            f"The first argument of function '{fn_name}' must be instant, found '{arg.type.name.lower()}'."
+            f"The first argument of function '{fn_name}' must be instant, found '{_typeName(arg)}'."
         )
     return arg.value
 
@@ -1581,7 +1584,7 @@ def _fn_timeSpan(args: List[FormulaValue], ctx: "FormulaRuleContext") -> Formula
             return FormulaValue(FormulaValueType.DURATION, TimeSpanValue(arg.value.end - arg.value.start))
     if arg.type != FormulaValueType.STRING:
         raise FormulaRuntimeError(
-            f"The first argument of function 'time-span' must be string, duration, found '{arg.type.name.lower()}'."
+            f"The first argument of function 'time-span' must be string, duration, found '{_typeName(arg)}'."
         )
 
     try:
@@ -1675,7 +1678,7 @@ _TYPE_LABEL = {
 
 
 def _typeLabel(fv: FormulaValue) -> str:
-    return _TYPE_LABEL.get(fv.type, fv.type.name.lower())
+    return _TYPE_LABEL.get(fv.type, _typeName(fv))
 
 
 def _requireFirstArgType(funcName: str, args: List[FormulaValue], allowed: List[FormulaValueType]) -> FormulaValue:

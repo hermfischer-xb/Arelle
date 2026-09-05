@@ -56,7 +56,7 @@ from .FormulaValue import (
 )
 from .FormulaContext import FormulaGlobalContext, FormulaRuleContext
 from .FormulaFunctions import callFunction, BUILTIN_FUNCTIONS
-from .FormulaProperties import getProperty
+from .FormulaProperties import getProperty, _typeNameOf
 from .DateTimeSupport import (
     InstantValue,
     DateRangeValue,
@@ -1576,7 +1576,7 @@ def _evalBinary(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         if right.type in (FormulaValueType.DURATION, FormulaValueType.NONE, FormulaValueType.SKIP) or \
                 left.type in (FormulaValueType.DURATION,):
             raise FormulaRuntimeError(
-                f"Property 'contains' or 'in' expression cannot operate on a '{right.type.name.lower()}' and '{left.type.name.lower()}'"
+                f"Property 'contains' or 'in' expression cannot operate on a '{_typeNameOf(right)}' and '{_typeNameOf(left)}'"
             )
         if right.type in (FormulaValueType.STRING, FormulaValueType.QNAME):
             if left.type == FormulaValueType.NONE:
@@ -1625,19 +1625,19 @@ def _evalBinary(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     # ---- Set intersection ----
     if op.lower() == "intersect":
         if left.type != FormulaValueType.SET:
-            leftName = 'unbound' if left.type == FormulaValueType.NONE else left.type.name.lower()
+            leftName = 'unbound' if left.type == FormulaValueType.NONE else _typeNameOf(left)
             raise FormulaRuntimeError(
                 f"Intersection can only operatate on sets. The left side is a '{leftName}'."
             )
         if right.type != FormulaValueType.SET:
-            rightName = 'unbound' if right.type == FormulaValueType.NONE else right.type.name.lower()
+            rightName = 'unbound' if right.type == FormulaValueType.NONE else _typeNameOf(right)
             raise FormulaRuntimeError(
                 f"Intersection can only operatate on sets. The right side is a '{rightName}'."
             )
         return _setOp(left, "intersect", right, merged)
     if op == "&":
         if left.type != FormulaValueType.SET:
-            typeName = 'unbound' if left.type == FormulaValueType.NONE else left.type.name.lower()
+            typeName = 'unbound' if left.type == FormulaValueType.NONE else _typeNameOf(left)
             raise FormulaRuntimeError(
                 f"Intersection can only operatate on sets. The left side is a '{typeName}'."
             )
@@ -1646,7 +1646,7 @@ def _evalBinary(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     # ---- Symmetric difference ----
     if op == "^":
         if left.type != FormulaValueType.SET:
-            typeName = 'unbound' if left.type == FormulaValueType.NONE else left.type.name.lower()
+            typeName = 'unbound' if left.type == FormulaValueType.NONE else _typeNameOf(left)
             raise FormulaRuntimeError(
                 f"Symetric difference can only operatate on sets. The left side is a '{typeName}'."
             )
@@ -1711,8 +1711,8 @@ def _arith(left: FormulaValue, op: str, right: FormulaValue,
             return FormulaValue(FormulaValueType.SET, right.value, alignment=merged)
         # Type mismatch: set + list/other non-set
         if left.type == FormulaValueType.SET or right.type == FormulaValueType.SET:
-            lname = left.type.name.lower()
-            rname = right.type.name.lower()
+            lname = _typeNameOf(left)
+            rname = _typeNameOf(right)
             raise FormulaRuntimeError(f"Incompatabile operands {lname} + {rname}.")
         if left.type == FormulaValueType.DICT and right.type == FormulaValueType.DICT:
             resultDict = dict(left.value)
@@ -1913,7 +1913,7 @@ def _evalIf(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     # non-boolean condition is an evaluation error
     if cond.type != FormulaValueType.BOOLEAN:
         raise FormulaRuntimeError(
-            f"If condition is not a boolean, found '{cond.type.name.lower()}'"
+            f"If condition is not a boolean, found '{_typeNameOf(cond)}'"
         )
     if cond.value:
         return evaluateExpr(node.get("thenExpr"), ctx)
@@ -1930,7 +1930,7 @@ def _evalFor(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     body       = node.get("body")
     if collection.type not in (FormulaValueType.SET, FormulaValueType.LIST):
         raise FormulaRuntimeError(
-            f"For loop requires a set or list, found '{collection.type.name.lower()}'."
+            f"For loop requires a set or list, found '{_typeNameOf(collection)}'."
         )
     items      = _unwrapColl(collection)
     results: List[FormulaValue] = []
