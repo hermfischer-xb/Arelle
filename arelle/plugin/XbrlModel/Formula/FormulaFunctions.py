@@ -1162,6 +1162,20 @@ def _fn_random(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVa
 # Taxonomy functions
 # ---------------------------------------------------------------------------
 
+def _sameDocument(a: str, b: str) -> bool:
+    """Whether two references name the same document.
+
+    A rule writes a relative path; the loaded model knows an absolute one.
+    """
+    import os
+    if a == b:
+        return True
+    try:
+        return os.path.realpath(a) == os.path.realpath(b)
+    except (OSError, ValueError):
+        return False
+
+
 def _fn_taxonomy(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValue:
     """
     taxonomy(uri) → taxonomy object
@@ -1176,8 +1190,15 @@ def _fn_taxonomy(args: List[FormulaValue], ctx: "FormulaRuleContext") -> Formula
     # answer; only a URI needs loading.
     if args[0].type == FormulaValueType.TAXONOMY:
         return args[0]
-    # Loading an external taxonomy requires Arelle's model loader
     uri = str(args[0].value)
+    # The model being evaluated, named by its own URL, is that model -- not a
+    # second copy of it. Loading it again produces a distinct model whose
+    # objects do not compare with the loaded one's, and costs the load twice.
+    current = ctx.globalCtx.txmyMdl
+    currentUri = getattr(getattr(current, "modelDocument", None), "uri", None)
+    if currentUri and _sameDocument(uri, currentUri):
+        return FormulaValue(FormulaValueType.TAXONOMY, current)
+    # Loading another model requires Arelle's model loader
     cntlr = ctx.globalCtx.cntlr
     if cntlr is None:
         raise FormulaRuntimeError("model(uri) requires an Arelle controller")

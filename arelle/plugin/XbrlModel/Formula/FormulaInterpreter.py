@@ -988,14 +988,19 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     elif conceptFilter is not None:
         conceptQn = conceptFilter["expected"]
         if isinstance(conceptQn, QName):
-            seedFacts = ctx.globalCtx.factsForConcept(conceptQn)
-            # Fallback: `@LocalName` shortcut resolved via default namespace
-            # may not match facts authored in a different taxonomy version
-            # namespace -- retry by local name.
-            if not seedFacts and conceptFilter.get("isDefaultNsShortcut"):
+            if conceptFilter.get("isDefaultNsShortcut"):
+                # `@Assets` spans taxonomy version namespaces -- the per-fact
+                # filter accepts any concept of that local name -- so seed by
+                # local name rather than by the exact QName the rule set's
+                # default namespace happened to produce. Seeding from the index
+                # first and falling back only when it came back empty missed
+                # every fact whose namespace differed but which the index
+                # nonetheless matched in part.
                 seedFacts = _findFactsByLocalName(
                     ctx.globalCtx, conceptFilter.get("localName") or conceptQn.localName
-                )
+                ) or ctx.globalCtx.factsForConcept(conceptQn)
+            else:
+                seedFacts = ctx.globalCtx.factsForConcept(conceptQn)
         else:
             seedFacts = []
     else:
@@ -1331,6 +1336,13 @@ def _factMatchesFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
                 for i in pf["value"].value
             ]
             match = any(_loose_eq(factDimVal, e) for e in items)
+            if not match and isinstance(factDimVal, QName):
+                # `@concept in list(Assets, Cash)` names concepts unprefixed
+                # just as `@Assets` does, and spans taxonomy version namespaces
+                # the same way. `=` already allowed that; `in` did not.
+                match = any(isinstance(e, QName)
+                            and e.localName == factDimVal.localName
+                            for e in items)
             return match if op == "in" else not match
         # scalar — fall through to == / !=
         match = _loose_eq(factDimVal, expected)

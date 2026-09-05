@@ -33,7 +33,7 @@ from queue import Queue
 from typing import Any
 
 from pyparsing import (
-    CaselessKeyword, Combine, Empty, Forward, Group, Literal,
+    CaselessKeyword, Combine, Empty, Forward, Group, Keyword, Literal,
     OneOrMore, Opt, OpAssoc, ParserElement, ParseResults, Regex, Suppress, Word,
     ZeroOrMore, alphanums, alphas, c_style_comment, delimited_list,
     line_end, one_of, printables, pyparsing_common, infix_notation,
@@ -213,7 +213,7 @@ def _buildGrammar():
     # string, so without these `$c.periodType == duration` compares a string to
     # a no-namespace QName and is quietly false.
     periodTypeLiteral = Group(
-        (CaselessKeyword("instant") | CaselessKeyword("duration")).setResultsName("value")
+        (Keyword("instant") | Keyword("duration")).setResultsName("value")
     ).setResultsName("periodType")
 
     # ---- Variable reference ----

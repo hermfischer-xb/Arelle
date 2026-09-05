@@ -11,7 +11,7 @@ See COPYRIGHT.md for copyright information.
 """
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from arelle.ModelValue import QName
@@ -116,7 +116,40 @@ def _factPropValue(fact, args, ctx):
     # one by the duplicate rules rather than by taking whichever came first.
     from .FormulaDuplicates import effectiveFactValue
     fv = effectiveFactValue(fact)
-    return FormulaValue.fromScalar(fv.value) if fv is not None else NONE_VALUE
+    if fv is None:
+        return NONE_VALUE
+    return _typedFactValue(fact, getattr(fv, "value", None), ctx)
+
+
+def _typedFactValue(fact, raw, ctx) -> FormulaValue:
+    """Type a fact's value by its concept's datatype.
+
+    A value arrives from the document as a string. Left as one, `$fact.value`
+    is not a number and will not compare or compute -- and coercing to float
+    would lose precision on a monetary value, which a financial reporting
+    language cannot afford. A numeric fact therefore becomes a Decimal.
+    """
+    if raw is None:
+        return NONE_VALUE
+    if not isinstance(raw, str):
+        return FormulaValue.fromScalar(raw)
+
+    conceptValue = _factPropConcept(fact, [], ctx)
+    concept = conceptValue.value if conceptValue.type == FormulaValueType.CONCEPT else None
+    isNumeric = False
+    if concept is not None:
+        try:
+            isNumeric = bool(concept.isNumeric(_mdlOf(fact, ctx)))
+        except (AttributeError, TypeError):
+            isNumeric = False
+    if isNumeric:
+        try:
+            return FormulaValue(FormulaValueType.DECIMAL, Decimal(raw.strip()))
+        except (InvalidOperation, ValueError):
+            return FormulaValue(FormulaValueType.STRING, raw)
+    if raw in ("true", "false"):
+        return FormulaValue(FormulaValueType.BOOLEAN, raw == "true")
+    return FormulaValue(FormulaValueType.STRING, raw)
 
 def _factPropDecimals(fact, args, ctx):
     from .FormulaDuplicates import effectiveFactValue
