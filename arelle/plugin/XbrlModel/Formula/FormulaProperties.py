@@ -41,6 +41,12 @@ if TYPE_CHECKING:
 # Helper
 # ---------------------------------------------------------------------------
 
+def _xbrlNs():
+    """The canonical xbrl namespace, from the one place that knows the date."""
+    from XbrlModel.XbrlConst import xbrl
+    return xbrl
+
+
 def _wrap(value: Any, vtype: FormulaValueType = None) -> FormulaValue:
     if value is None:
         return NONE_VALUE
@@ -62,13 +68,13 @@ def _wrapSet(items) -> FormulaValue:
 def _factPropPeriod(fact, args, ctx):
     dims = fact.factDimensions
     from arelle.ModelValue import qname as mkQn
-    periodQn = mkQn("https://xbrl.org/2026", "period")
+    periodQn = mkQn(_xbrlNs(), "period")
     period = dims.get(periodQn)
     return _wrap(period)
 
 def _factPropEntity(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
-    entityQn = mkQn("https://xbrl.org/2026", "entity")
+    entityQn = mkQn(_xbrlNs(), "entity")
     ev = fact.factDimensions.get(entityQn)
     if ev is None:
         return NONE_VALUE
@@ -77,7 +83,7 @@ def _factPropEntity(fact, args, ctx):
 
 def _factPropUnit(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
-    unitQn = mkQn("https://xbrl.org/2026", "unit")
+    unitQn = mkQn(_xbrlNs(), "unit")
     uv = fact.factDimensions.get(unitQn)
     if uv is None:
         return NONE_VALUE
@@ -86,12 +92,13 @@ def _factPropUnit(fact, args, ctx):
 
 def _factPropConcept(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
-    conceptQn = mkQn("https://xbrl.org/2026", "concept")
+    conceptQn = mkQn(_xbrlNs(), "concept")
     qn = fact.factDimensions.get(conceptQn)
     if qn is None:
         return NONE_VALUE
-    # Look up concept object from taxonomy
-    conceptObj = ctx.txmyMdl.namedObjects.get(qn)
+    # Look up the concept in the fact's own model: a rule may query a model
+    # other than the one loaded, and ctx.txmyMdl is the loaded one.
+    conceptObj = _mdlOf(fact, ctx).namedObjects.get(qn)
     if conceptObj is not None:
         return FormulaValue(FormulaValueType.CONCEPT, conceptObj)
     return _wrap(qn, FormulaValueType.QNAME)
@@ -117,10 +124,17 @@ def _factPropDecimals(fact, args, ctx):
     return _wrap(getattr(fv, "decimals", None)) if fv is not None else NONE_VALUE
 
 def _factPropFactValues(fact, args, ctx):
-    return FormulaValue(FormulaValueType.SET, OrderedSet(
-        FormulaValue.fromScalar(getattr(fv, "value", None))
+    """The fact value objects of a fact, in order.
+
+    A list, and of the objects rather than their values: a fact stating the same
+    total in a table and again in narrative text has two fact value objects with
+    equal values, and a set of values would collapse them -- losing the very
+    thing the property exists to show.
+    """
+    return FormulaValue(FormulaValueType.LIST, [
+        FormulaValue(FormulaValueType.FACT_VALUE, fv)
         for fv in (getattr(fact, "factValues", None) or ())
-    ))
+    ])
 
 def _factPropName(fact, args, ctx):
     return _wrap(getattr(fact, "name", None), FormulaValueType.QNAME)
@@ -165,7 +179,7 @@ def _factPropCubes(fact, args, ctx):
     from XbrlModel.XbrlCube import XbrlCube
     from arelle.ModelValue import qname as mkQn
     txmy = ctx.txmyMdl
-    cubeDimQn = mkQn("https://xbrl.org/2026", "cube")
+    cubeDimQn = mkQn(_xbrlNs(), "cube")
     factCubeNames = fact.factDimensions.get(cubeDimQn)
     cubes = []
     if factCubeNames is not None:
@@ -189,7 +203,7 @@ def _factPropCubes(fact, args, ctx):
 def _factPropAspects(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
     coreLocals = ("concept", "period", "entity", "unit", "language")
-    coreNs = "https://xbrl.org/2026"
+    coreNs = _xbrlNs()
     aspects = {}
     for k, v in fact.factDimensions.items():
         if isinstance(k, QName) and k.namespaceURI == coreNs and k.localName in coreLocals:
@@ -291,7 +305,7 @@ def _resolveLabelTypeUri(lt, ctx) -> Optional[str]:
             return str(u)
     if lt.namespaceURI in (
         "http://www.xbrl.org/2003/instance",
-        "https://xbrl.org/2026",
+        _xbrlNs(),
         "https://xbrl.org/2021",
     ):
         return f"http://www.xbrl.org/2003/role/{lt.localName}"
@@ -1112,7 +1126,7 @@ def _cubeProp(cube, propName: str, args, ctx) -> FormulaValue:
     if propName == "facts":
         from XbrlModel.XbrlFact import XbrlFact
         from arelle.ModelValue import qname as mkQn
-        cubeDimQn = mkQn("https://xbrl.org/2026", "cube")
+        cubeDimQn = mkQn(_xbrlNs(), "cube")
         cubeQn = getattr(cube, "name", None)
         facts = [
             f for f in mdl.filterNamedObjects(XbrlFact)
@@ -1576,6 +1590,7 @@ _TYPE_NAMES = {
     FormulaValueType.DOMAIN_NETWORK: "domainNetwork",
     FormulaValueType.DOMAIN_CLASS: "domainClass",
     FormulaValueType.CUBE_TYPE: "cubeType",
+    FormulaValueType.FACT_VALUE: "factValue",
     FormulaValueType.MODEL_OBJECT: "object",
     FormulaValueType.RELATIONSHIP:   "relationship",
     FormulaValueType.RELATIONSHIP_TYPE: "relationshipType",
@@ -1799,6 +1814,22 @@ def getProperty(
             return FormulaValue.fromScalar(value)
         raise FormulaRuntimeError(
             f"Property {propName!r} is not a property of a {_typeNameOf(obj)!r}.")
+
+    if obj.type == FormulaValueType.FACT_VALUE:
+        fv = obj.value
+        if propName == "name":
+            return _wrap(getattr(fv, "name", None))
+        if propName == "value":
+            return FormulaValue.fromScalar(getattr(fv, "value", None))
+        if propName in ("decimals", "language", "scale", "sign", "escape"):
+            return _wrap(getattr(fv, propName, None))
+        if propName in ("reportSource", "transformation"):
+            return _objValue(_mdlOf(fv, ctx), getattr(fv, propName, None))
+        if propName == "valueSources":
+            return FormulaValue(FormulaValueType.LIST, [
+                FormulaValue.fromScalar(vs)
+                for vs in (getattr(fv, "valueSources", None) or ())])
+        raise FormulaRuntimeError(f"Unknown factValue property {propName!r}")
 
     if obj.type == FormulaValueType.DOMAIN_CLASS:
         dc = obj.value

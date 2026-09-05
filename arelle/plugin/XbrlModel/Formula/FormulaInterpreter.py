@@ -956,6 +956,19 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     from XbrlModel.XbrlFact import XbrlFact
     from XbrlModel.XbrlCube import conceptCoreDim as conceptDimQn
 
+    # A `@model` filter naming a model other than the one being evaluated makes
+    # that model the source of facts. Without this the filter was accepted and
+    # then ignored, so a query against another model silently selected nothing.
+    sourceMdl = None
+    for pf in parsedFilters:
+        if pf.get("kind") != "pseudo" or pf.get("pseudoName") != "model":
+            continue
+        value = pf.get("value")
+        if isinstance(value, FormulaValue) and value.type == FormulaValueType.TAXONOMY:
+            sourceMdl = value.value
+        break
+    otherModel = sourceMdl is not None and sourceMdl is not ctx.globalCtx.txmyMdl
+
     conceptFilter = next(
         (pf for pf in parsedFilters
          if pf.get("kind") == "concept" and pf.get("op") in ("=", "==")
@@ -963,7 +976,16 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         None,
     )
 
-    if conceptFilter is not None:
+    if otherModel:
+        # The other model has no fact index in this evaluation context, so it is
+        # scanned; the concept filter below still narrows the result.
+        from arelle.XmlValidateConst import VALID
+        seedFacts = [
+            f for f in sourceMdl.filterNamedObjects(XbrlFact)
+            if getattr(f, "factDimensions", None)
+            and getattr(f, "_xValid", VALID) >= VALID
+        ]
+    elif conceptFilter is not None:
         conceptQn = conceptFilter["expected"]
         if isinstance(conceptQn, QName):
             seedFacts = ctx.globalCtx.factsForConcept(conceptQn)
@@ -1068,12 +1090,21 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
 _CORE_DIM_LOCALS = frozenset((
     "concept", "period", "entity", "unit", "language", "noteId",
 ))
-_CORE_DIM_NS = "https://xbrl.org/2025"
+def _coreDimNs() -> str:
+    """The namespace core dimensions live in, from the one place that knows it.
+
+    This was a literal "https://xbrl.org/2025" while models are written at the
+    current status date, so `@concept`, `@period`, `@entity` and `@unit` built
+    filter QNames that could not match any fact's dimension key.
+    """
+    from XbrlModel.XbrlConst import xbrl
+    return xbrl
+
 
 def _isCoreDimQn(qn) -> bool:
     if not isinstance(qn, QName):
         return False
-    return qn.namespaceURI == _CORE_DIM_NS and qn.localName in _CORE_DIM_LOCALS
+    return qn.namespaceURI == _coreDimNs() and qn.localName in _CORE_DIM_LOCALS
 
 
 _coreDimQnCache: Dict[str, QName] = {}
@@ -1082,7 +1113,7 @@ def _coreDimQn(localName: str) -> QName:
     qn = _coreDimQnCache.get(localName)
     if qn is None:
         from arelle.ModelValue import qname as mkQn
-        qn = mkQn(_CORE_DIM_NS, localName)
+        qn = mkQn(_coreDimNs(), localName)
         _coreDimQnCache[localName] = qn
     return qn
 
@@ -1225,8 +1256,9 @@ def _factMatchesFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     if kind == "any":
         return True
 
-    # @model — instance filter; single-instance interpreter treats as no-op
-    # (any non-* value is accepted as the current model).
+    # @model — the model a fact comes from. The seed set is already drawn from
+    # the named model (see _evalFactQuery), so by the time a fact is tested it
+    # is from the right one; a wildcard accepts any.
     if kind == "pseudo" and pf.get("pseudoName") == "model":
         return True
 
@@ -1349,7 +1381,7 @@ def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     from XbrlModel.XbrlFact import XbrlFact  # noqa
     from arelle.ModelValue import qname as mkQn
 
-    cubeDimQn = mkQn("https://xbrl.org/2025", "cube")
+    cubeDimQn = mkQn(_coreDimNs(), "cube")
     factCubeNames = fact.factDimensions.get(cubeDimQn)
     if factCubeNames is None:
         # Fall back: scan cubes' _cellFacts (populated by ValidateFacts) to
