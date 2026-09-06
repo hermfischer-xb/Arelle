@@ -96,7 +96,7 @@ can be removed by deleting the block and those sites.
 """
 
 from typing import TYPE_CHECKING, cast, GenericAlias, Union, _GenericAlias, _UnionGenericAlias, get_origin, ClassVar, ForwardRef, get_args, Dict, Any
-import os, io, json, cbor2, sys, time, traceback, inspect, types
+import os, io, json, sys, time, traceback, inspect, types
 JSON_SCHEMA_VALIDATOR = "jsonschema_rs" # select one of below JSON schema validator libraries (seriously different performance)
 #JSON_SCHEMA_VALIDATOR = "jsonschema"
 #JSON_SCHEMA_VALIDATOR = "fastjsonschema"
@@ -156,7 +156,7 @@ from .XbrlConst import (xbrl, oimTaxonomyDocTypePattern, oimTaxonomyDocTypes, oi
                         oimReferenceBundleDocType, xbrlTaxonomyObjects,
                         isOimTaxonomyDocType, normalizeNamespace, namespaceStatus,
                         isAcceptedNamespaceStatus, defaultNamespacePolicy, statusDate,
-                        namespacePolicies)
+                        namespacePolicies, datedNamespaceParts, cbor2Module)
 from .ParseSelectionWhereClause import parseSelectionWhereClause
 from .LoadCsvTable import csvTableRowFacts
 from .SaveModel import xbrlModelSave, saveFiles
@@ -282,35 +282,40 @@ def loadXbrlModule(cntlr, error, warning, modelXbrl, moduleFile, mappedUri, **kw
                 "dtr-type": "http://www.xbrl.org/dtr/type/*",
             }
 
-            year = None
+            # The reserved aliases are checked against this document's own status
+            # date, which may be a year ("2026") while the specification is in
+            # development or a status and date ("PWD/2026-09-01") once it is
+            # published -- so take the token from datedNamespaceParts rather than
+            # matching a year.
+            statusDateToken = None
             if isinstance(namespaces, dict):
                 nsXbrl = namespaces.get("xbrl")
-                if isinstance(nsXbrl, str):
-                    m = re.match(r"https://xbrl\.org/(\d{4})(?:/|$)", nsXbrl)
-                    if m:
-                        year = m.group(1)
-                if year is None:
-                    for nsValue in namespaces.values():
-                        if isinstance(nsValue, str):
-                            m = re.match(r"https://xbrl\.org/(\d{4})(?:/|$)", nsValue)
-                            if m:
-                                year = m.group(1)
-                                break
-            if year is None:
-                m = re.match(r"https://xbrl\.org/(\d{4})/", documentType or "")
-                if m:
-                    year = m.group(1)
+                candidates = [nsXbrl] if isinstance(nsXbrl, str) else []
+                candidates.extend(namespaces.values())
+                for nsValue in candidates:
+                    parts = datedNamespaceParts(nsValue)
+                    if parts is not None:
+                        statusDateToken = parts[0]
+                        break
+            if statusDateToken is None:
+                parts = datedNamespaceParts(documentType or "")
+                if parts is not None:
+                    statusDateToken = parts[0]
 
-            if year is None:
+            if statusDateToken is None:
                 return reservedAliasUris
 
+            # Only the aliases the specification dates. "xbrli" is NOT among them:
+            # the reserved alias for the XBRL 2.1 instance namespace is "xbrli-2003",
+            # bound to the undated https://xbrl.org/2003/instance, so a dated
+            # ".../instance" reservation would wrongly reject a document that binds
+            # "xbrli" -- an unreserved prefix -- to the 2003 namespace.
             reservedAliasUris.update({
-                "xbrl": f"https://xbrl.org/{year}",
-                "xbrli": f"https://xbrl.org/{year}/instance",
-                "ref": f"https://xbrl.org/{year}/ref",
-                "utr": f"https://xbrl.org/{year}/utr",
-                "xbrltt": f"https://xbrl.org/{year}/transform-types",
-                "oimte": f"https://xbrl.org/{year}/oimtaxonomy/error",
+                "xbrl": f"https://xbrl.org/{statusDateToken}",
+                "ref": f"https://xbrl.org/{statusDateToken}/ref",
+                "utr": f"https://xbrl.org/{statusDateToken}/utr",
+                "xbrltt": f"https://xbrl.org/{statusDateToken}/transform-types",
+                "oimte": f"https://xbrl.org/{statusDateToken}/oimtaxonomy/error",
             })
             return reservedAliasUris
 
@@ -452,7 +457,7 @@ def loadXbrlModule(cntlr, error, warning, modelXbrl, moduleFile, mappedUri, **kw
                 elif fileExt == ".cbor":
                     _file = modelXbrl.fileSource.file(moduleFile, binary="true")[0]
                     with _file as f:
-                        moduleFileObj = cbor2.load(f)
+                        moduleFileObj = cbor2Module().load(f)
             modelXbrl.profileActivity(f"Load OIM Taxonomy file {moduleFileBasename}", minTimeToShow=PROFILE_MIN_TIME)
 
         except UnicodeDecodeError as ex:
@@ -1382,7 +1387,7 @@ def isXbrlModelLoadable(modelXbrl, mappedUri, normalizedUri, filepath, **kwargs)
     elif _ext == ".cbor":
         try:
             with io.open(filepath, 'rb', buffering=2048) as f:
-                decoder = cbor2.CBORDecoder(f)
+                decoder = cbor2Module().CBORDecoder(f)
                 obj = decoder.decode() # this stream-reads outermost object, documentInfo should be first
                 if (isinstance(obj, dict) and isinstance(obj.get("documentInfo",{}), dict) and
                     isOimTaxonomyDocType(obj.get("documentInfo",{}).get("documentType",""))):

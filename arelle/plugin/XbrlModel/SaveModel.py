@@ -18,7 +18,7 @@ oimSaveMode which overrides the modal):
 
 See the plugin header (XbrlModel/__init__.py) and SAVEMODEL_IMPLEMENTATION_PLAN.md for details.
 '''
-import os, io, json, cbor2, datetime, pandas as pd
+import os, io, json, datetime
 from decimal import Decimal
 import tkinter
 from collections import OrderedDict
@@ -26,7 +26,7 @@ from typing import GenericAlias, Optional, Union, _UnionGenericAlias, get_origin
 from arelle.ModelValue import qname, QName, timeInterval
 from ordered_set import OrderedSet
 from .ViewXbrlTaxonomyObject import ViewXbrlTxmyObj
-from .XbrlConst import qnBuiltInCoreObjectsTaxonomy
+from .XbrlConst import qnBuiltInCoreObjectsTaxonomy, cbor2Module
 from .XbrlObject import XbrlModelClass
 from .XbrlModel import XbrlCompiledModel
 from .XbrlModule import XbrlModule
@@ -577,8 +577,12 @@ def saveFiles(cntlr, txmyMdl, fileName, saveMode="full", sourceUrlRewrite=None, 
             json.dump(oimModel, fp, indent=3, default=_jsonDefault)
     elif fileExt == ".cbor":
         with io.open(fileName, "wb") as fp:
-            cbor2.dump(oimModel, fp, value_sharing=True, string_referencing=True)
+            cbor2Module().dump(oimModel, fp, value_sharing=True, string_referencing=True)
     elif fileExt == ".xlsx":
+        # Imported here rather than at module scope for the same reason as cbor2: the
+        # Excel serialization is the least-used of the three, and pandas is by far the
+        # heaviest dependency in the plugin, so loading the plugin does not pay for it.
+        import pandas as pd
         with pd.ExcelWriter(fileName, mode='w', engine="openpyxl") as writer:
             for key, val in mergedModel.items():
                 if isinstance(val, (list, set, OrderedSet, OrderedDict)):

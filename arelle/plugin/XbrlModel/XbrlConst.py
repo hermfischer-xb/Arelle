@@ -11,7 +11,7 @@ from arelle.XbrlConst import xsd
 # the specification's own template -- so that recognition and acceptance are
 # separate decisions: a document with an unknown date is recognised here and then
 # reported against the namespace policy, rather than as an unknown document type.
-oimTaxonomyDocTypePattern = re.compile(r"\s*\{.*\"documentType\"\s*:\s*\"https://xbrl.org/[^\"/]+/(?:module|compiled|archive|labelBundle|referenceBundle)\"", flags=re.DOTALL)
+oimTaxonomyDocTypePattern = re.compile(r"\s*\{.*\"documentType\"\s*:\s*\"https://xbrl.org/[^\"]+?/(?:module|compiled|archive|labelBundle|referenceBundle)\"", flags=re.DOTALL)
 # Bundle doctypes: a labelBundle contains only label objects, a referenceBundle only reference objects
 # (oim-taxonomy §bundle module constraints). "bundle" was renamed to "labelBundle" (2026-07-17).
 # ---------------------------------------------------------------------------
@@ -53,6 +53,10 @@ statusDateStatus = STATUS_PWD
 # (its characters are RFC 3986 sub-delims and unreserved), so it needs no
 # handling beyond appearing here.
 #
+# A published specification substitutes the template with its status and date,
+# "PWD/2026-09-01", which is two path segments rather than one -- so a date
+# token here may itself contain a slash (see datedNamespaceParts).
+#
 # Only Tavi-era dates belong in this table. XBRL 2.1-era namespaces that happen
 # to carry a year -- xbrl.org/2003/instance, /2020/extensible-enumerations-2.0,
 # /2021/oim-common/error -- are fixed by their own specifications and MUST NOT
@@ -61,6 +65,7 @@ recognisedStatusDates = {
     "((~status_date_uri~))": STATUS_TEMPLATE,
     "2025": STATUS_PWD,
     "2026": STATUS_PWD,
+    "PWD/2026-09-01": STATUS_PWD,   # Project Tavi 1.0 PWD, as published
 }
 
 # Paths hanging off a dated https://xbrl.org/<date> stem, listed explicitly so
@@ -94,8 +99,11 @@ irregularNamespaceAliases = {
     "/accounting": "http://xbrl.org/accounting",
 }
 
-_datedNamespacePattern = re.compile(
-    r"^https://xbrl\.org/(?P<date>[^/]+)(?P<path>/.*)?$")
+_datedNamespaceStem = "https://xbrl.org/"
+# Longest path first, so that "/oimtaxonomy/calculation/error" is preferred over
+# "/error" would be, and the empty path (the xbrl namespace itself) is tried last.
+_datedNamespacePathsLongestFirst = tuple(
+    sorted(datedNamespacePaths, key=len, reverse=True))
 
 
 def datedNamespaceParts(uri):
@@ -103,16 +111,33 @@ def datedNamespaceParts(uri):
 
     None for anything that is not https://xbrl.org/<date><knownPath>, which
     leaves XBRL 2.1-era and undated namespaces untouched.
+
+    The date token is whatever stands between the xbrl.org stem and a known
+    path. It is one segment while the specification is in development ("2026"),
+    but a published specification dates itself by status and date, so the token
+    may itself contain a slash: https://xbrl.org/PWD/2026-09-01/compiled. A
+    multi-segment split is therefore only taken when it yields a date this build
+    recognises -- which is what keeps XBRL 2.1-era URIs such as
+    https://xbrl.org/2021/oim-common/error from being split at all. A
+    single-segment date that is not recognised still splits, so that an unknown
+    date reaches the caller's error reporting as an unknown date rather than as
+    an unrecognised URI.
     """
-    if not isinstance(uri, str):
+    if not isinstance(uri, str) or not uri.startswith(_datedNamespaceStem):
         return None
-    match = _datedNamespacePattern.match(uri)
-    if match is None:
-        return None
-    path = match.group("path") or ""
-    if path not in datedNamespacePaths:
-        return None
-    return match.group("date"), path
+    rest = uri[len(_datedNamespaceStem):]
+    unrecognisedDate = None
+    for path in _datedNamespacePathsLongestFirst:
+        if path and not rest.endswith(path):
+            continue
+        date = rest[:len(rest) - len(path)] if path else rest
+        if not date:
+            continue
+        if date in recognisedStatusDates:
+            return date, path
+        if unrecognisedDate is None and "/" not in date:
+            unrecognisedDate = (date, path)
+    return unrecognisedDate
 
 
 def namespaceStatus(uri):
@@ -490,3 +515,20 @@ xbrlTaxonomyObjects = {
 }
 
 EMPTY_FROZENSET = frozenset()
+
+def cbor2Module():
+    """The cbor2 module, imported on first use.
+
+    CBOR is one of the OIM's serializations but a rarely used one, so the
+    dependency is not paid for by the far more common .json path: it is imported
+    only when a .cbor document is actually read or written. An installation
+    without cbor2 gets an actionable message here rather than an ImportError on
+    plugin load.
+    """
+    try:
+        import cbor2
+    except ImportError:
+        raise RuntimeError(
+            "Reading or writing an OIM .cbor document requires the cbor2 package: "
+            "pip install cbor2")
+    return cbor2

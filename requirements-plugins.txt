@@ -8,3 +8,11 @@ pytz==2026.2
 
 # EDGAR and XULE plugins
 aniso8601==10.0.1
+
+# XbrlModel (OIM taxonomy / Project Tavi) plugin
+bitarray==3.8.0
+jsonschema_rs==0.46.6
+ordered-set==4.1.0
+# Optional, imported only when the corresponding serialization is used:
+#   cbor2  -- reading or writing a .cbor OIM document
+#   pandas -- saving a model as .xlsx

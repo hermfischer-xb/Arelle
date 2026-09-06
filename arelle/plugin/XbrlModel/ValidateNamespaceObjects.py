@@ -66,8 +66,14 @@ def validateNamespaceFamily(compMdl, module, oimFile, *, assertObjectType, valid
                                        _("The taxonomy module object %(name)s cannot have a reserved namespace URI."),
                                        xbrlObject=txMdlObj, name=name)
                         else:
+                            # Report the namespace the object was required to be in -- the
+                            # module's documentNamespacePrefix -- not the module name's own
+                            # prefix, which is frequently a different one and made the
+                            # message read as though the object matched what it violated.
                             emit_error(compMdl, "oimte:objectNamespaceMismatch",
-                                       _("The taxonomy module object %(name)s does not match the namespace %(nsPrefix)s: of the module."),
-                                       xbrlObject=txMdlObj, name=name, nsPrefix=module.name.prefix)
+                                       _("The taxonomy module object %(name)s is in namespace %(objectNamespace)s, "
+                                         "but the module's documentNamespacePrefix namespace is %(documentNamespace)s."),
+                                       xbrlObject=txMdlObj, name=name,
+                                       objectNamespace=ns, documentNamespace=documentNamespaceURI)
 
     validateProperties(compMdl, oimFile, module, module)
