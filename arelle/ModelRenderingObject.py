@@ -970,6 +970,28 @@ class DefnMdlTable(ModelFormulaResource):
         return parentChildOrder(self)
 
     @property
+    def addressedDimensionsOnly(self) -> bool:
+        """Whether only the dimensions this table addresses constrain its cells.
+
+        An addressed dimension is one which some breakdown of the table
+        identifies.  When this is true, a dimension the table never mentions
+        places no constraint on a cell, and facts are selected irrespective of
+        whether they report it.
+
+        The dimensions the table does address are unaffected.  A table may have
+        only one breakdown for any given aspect, and every leaf node of that
+        breakdown carries a value for it -- explicitly, or by the absence
+        inferred for aspects participating in a breakdown -- so an addressed
+        dimension is constrained in every cell already and this cannot weaken it.
+
+        Table linkbase 1.1 only.  A 1.0 table renders exactly as 1.0 even if it
+        carries the attribute, so that the two conformance classes stay distinct.
+        """
+        if self.namespaceURI not in XbrlConst.table11Namespaces:
+            return False
+        return self.get("addressedDimensionsOnly") in ("true", "1")
+
+    @property
     def descendantArcroles(self) -> tuple[str, ...]:  # type: ignore[override]
         return (XbrlConst.tableFilter, XbrlConst.tableFilterMMDD,
                 XbrlConst.tableBreakdown, XbrlConst.tableBreakdownMMDD,

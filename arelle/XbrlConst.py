@@ -682,6 +682,12 @@ qnTableConceptRelationshipNodeMMDD = QName.fromParts("conceptRelationshipNode", 
 qnTableDimensionRelationshipNodeMMDD = QName.fromParts("dimensionRelationshipNode", tableMMDD, _TABLE_PREFIX)
 qnTableAspectNodeMMDD = QName.fromParts("aspectNode", tableMMDD, _TABLE_PREFIX)
 
+# Table linkbase 1.1 namespaces.  addressedDimensionsOnly is a 1.1 feature, so a
+# table in the 1.0 namespace must render exactly as 1.0 whether or not it carries
+# the attribute.  Gating on this set is what keeps the two conformance classes
+# apart.  When 1.1 is re-dated for CR or PR, add the new namespace here.
+table11Namespaces = frozenset({tableMMDD})
+
 booleanValueTrue = "true"
 booleanValueFalse = "false"
 
