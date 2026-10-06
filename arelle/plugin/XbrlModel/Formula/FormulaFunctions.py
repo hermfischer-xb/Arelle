@@ -2053,7 +2053,7 @@ def callFunction(name: str, args: List[FormulaValue], ctx: "FormulaRuleContext")
         return fn(args, ctx)
 
     # Check user-defined functions (stored as constants)
-    const = ctx.globalCtx.constants.get(name)
+    const = ctx.globalCtx.constantValue(name)   # defined on first call if not yet
     if const is not None and callable(const.value):
         return const.value(args, ctx)
 

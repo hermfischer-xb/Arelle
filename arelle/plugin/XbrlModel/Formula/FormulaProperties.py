@@ -163,6 +163,13 @@ def _factPropDimensions(fact, args, ctx):
         for k in (fact.factDimensions or {}) if isinstance(k, QName)
     })
 
+def _factPropTaxonomyDimensions(fact, args, ctx):
+    from .FormulaInterpreter import _isCoreDimQn
+    return FormulaValue(FormulaValueType.DICT, {
+        FormulaValue(FormulaValueType.QNAME, k): factDimValue(fact, k, ctx)
+        for k in (fact.factDimensions or {}) if isinstance(k, QName) and not _isCoreDimQn(k)
+    })
+
 def _factPropValue(fact, args, ctx):
     # A fact may carry several fact value objects -- the same value located in a
     # table and again in narrative text, or an amended value -- which resolve to
@@ -313,6 +320,7 @@ FACT_PROPS: Dict[str, Callable] = {
     "unit":           _factPropUnit,
     "concept":        _factPropConcept,
     "dimensions":     _factPropDimensions,
+    "taxonomy-dimensions": _factPropTaxonomyDimensions,
     "value":          _factPropValue,
     "factValues":     _factPropFactValues,
     "decimals":       _factPropDecimals,
@@ -2021,6 +2029,10 @@ def getProperty(
             return FormulaValue(FormulaValueType.STRING, qn.localName if hasattr(qn, "localName") else str(qn))
         if propName == "namespace-uri":
             return FormulaValue(FormulaValueType.STRING, qn.namespaceURI if hasattr(qn, "namespaceURI") else "")
+        if propName == "clark":
+            ns = getattr(qn, "namespaceURI", None)
+            local = getattr(qn, "localName", str(qn))
+            return FormulaValue(FormulaValueType.STRING, f"{{{ns}}}{local}" if ns else local)
         if propName in ("string", "number", "to-qname"):
             if args:
                 raise FormulaRuntimeError(f"Property '{propName}' must have 0 arguments. Found {len(args)}.")
@@ -2037,6 +2049,17 @@ def getProperty(
         if propName in ("keys", "values", "length", "date"):
             return NONE_VALUE
         raise FormulaRuntimeError(f"Cannot access property {propName!r} on NONE value")
+
+    # Period object properties (tavi-formula.md, "Period object"): a date is an
+    # instant, a duration of days is a duration.
+    if obj.type in (FormulaValueType.DATE, FormulaValueType.DURATION) and propName in (
+            "is-instant", "is-duration", "is-forever"):
+        isRange = isinstance(obj.value, DateRangeValue)
+        isForever = isRange and obj.value.isForever
+        return FormulaValue(FormulaValueType.BOOLEAN, {
+            "is-instant": obj.type == FormulaValueType.DATE,
+            "is-duration": isRange and not isForever,
+            "is-forever": isForever}[propName])
 
     if obj.type == FormulaValueType.DATE:
         inst = obj.value

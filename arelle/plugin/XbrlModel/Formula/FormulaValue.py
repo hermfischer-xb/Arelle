@@ -126,7 +126,8 @@ def _hashableFormulaValueData(value: Any) -> Any:
     if isinstance(value, FormulaValue):
         return (value.type.name, _hashableFormulaValueData(value.value))
     if isinstance(value, dict):
-        return tuple(sorted((k, _hashableFormulaValueData(v)) for k, v in value.items()))
+        # Unordered, and its keys are FormulaValues, which do not sort.
+        return frozenset((k, _hashableFormulaValueData(v)) for k, v in value.items())
     if isinstance(value, (list, tuple)):
         return tuple(_hashableFormulaValueData(v) for v in value)
     if isinstance(value, set):
