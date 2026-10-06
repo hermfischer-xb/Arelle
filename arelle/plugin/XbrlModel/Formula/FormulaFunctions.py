@@ -1621,7 +1621,7 @@ def _fn_timeSpan(args: List[FormulaValue], ctx: "FormulaRuleContext") -> Formula
         if isinstance(arg.value, TimeSpanValue):
             return arg
         if isinstance(arg.value, DateRangeValue):
-            return FormulaValue(FormulaValueType.DURATION, TimeSpanValue(arg.value.end - arg.value.start))
+            return FormulaValue(FormulaValueType.DURATION, TimeSpanValue(arg.value.length))
     if arg.type != FormulaValueType.STRING:
         raise FormulaRuntimeError(
             f"The first argument of function 'time-span' must be string, duration, found '{_typeName(arg)}'."

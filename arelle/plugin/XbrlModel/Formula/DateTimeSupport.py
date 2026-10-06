@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import re
 
@@ -18,6 +18,15 @@ class DateRangeValue:
     start: datetime
     end: datetime
     isForever: bool = False
+    # True when `end` names a whole last day (a fact's period, whose OIM end is
+    # the following midnight), so the duration runs to the end of that day. Not
+    # compared: a fact's year and duration('2025-01-01', '2025-12-31') are equal.
+    endOfDay: bool = field(default=False, compare=False)
+
+    @property
+    def length(self) -> timedelta:
+        """The time the duration spans: end minus start, through its last day."""
+        return self.end - self.start + (timedelta(days=1) if self.endOfDay else timedelta(0))
 
 
 @dataclass(frozen=True)

@@ -1512,26 +1512,22 @@ def _factMatchesFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     dimQn = pf.get("dimQn")
     if dimQn is None:
         return True
-    factDimVal = fact.factDimensions.get(dimQn)
+    # Typed as `$fact.<dim>` would be: a period is a date or duration, not its
+    # lexical string, so `@period = date(...)` and `@period.days` compare.
+    from .FormulaProperties import factDimValue
+    dimValue = factDimValue(fact, dimQn, ctx)
+    factDimVal = dimValue.value
 
     # Optional property chain: e.g. @concept.balance — resolve fact's dim value
     # to the object (concept) then apply property chain.
     if pf["propChain"]:
-        # Wrap the fact's dim value into a FormulaValue of the appropriate
-        # type so that property dispatch (getProperty) works correctly.
-        target = factDimVal
-        if target is None:
+        if factDimVal is None:
             return False
+        cur = dimValue
         if dimQn.localName == "concept" and isinstance(factDimVal, QName):
             obj = ctx.globalCtx.txmyMdl.namedObjects.get(factDimVal)
-            cur = FormulaValue(FormulaValueType.CONCEPT, obj) if obj is not None \
-                else FormulaValue(FormulaValueType.QNAME, factDimVal)
-        elif dimQn.localName == "entity":
-            cur = FormulaValue(FormulaValueType.ENTITY, factDimVal)
-        elif dimQn.localName == "unit":
-            cur = FormulaValue(FormulaValueType.UNIT_VALUE, factDimVal)
-        else:
-            cur = target if isinstance(target, FormulaValue) else FormulaValue.fromScalar(target)
+            if obj is not None:
+                cur = FormulaValue(FormulaValueType.CONCEPT, obj)
         try:
             for prop in pf["propChain"]:
                 cur = getProperty(cur, prop, [], ctx)
@@ -1727,13 +1723,13 @@ def _isNil(fact) -> bool:
     models built before the property was carried.)"""
     global _qnNilProperty
     if _qnNilProperty is None:
-        from ..ValidateFacts import qnFactNilProperty
+        from XbrlModel.ValidateFacts import qnFactNilProperty
         _qnNilProperty = qnFactNilProperty
-    if any(getattr(p, "property", None) == _qnNilProperty for p in (getattr(fact, "properties", None) or ())):
+    if any(p.property == _qnNilProperty for p in fact.properties or ()):
         return True
-    if getattr(fact, "factValues", None):
+    if fact.factValues:
         fv = next(iter(fact.factValues))
-        return fv.value is None and not getattr(fv, "valueSources", None)
+        return fv.value is None and not fv.valueSources
     return False
 
 
@@ -1894,8 +1890,10 @@ def _evalBinary(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
 
     # ---- In / not in ----
     if op == "in":
+        # A duration has no members; it may itself be a member (`$fact.period in list(...)`).
         if right.type in (FormulaValueType.DURATION, FormulaValueType.NONE, FormulaValueType.SKIP) or \
-                left.type in (FormulaValueType.DURATION,):
+                (left.type == FormulaValueType.DURATION
+                 and right.type not in (FormulaValueType.LIST, FormulaValueType.SET)):
             raise FormulaRuntimeError(
                 f"Property 'contains' or 'in' expression cannot operate on a '{_typeNameOf(right)}' and '{_typeNameOf(left)}'"
             )

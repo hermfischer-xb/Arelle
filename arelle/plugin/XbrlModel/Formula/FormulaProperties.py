@@ -65,35 +65,97 @@ def _wrapSet(items) -> FormulaValue:
 # Fact properties
 # ---------------------------------------------------------------------------
 
+# A fact's dimension values are stored as the document wrote them: the period
+# and entity stay lexical strings ("2024-09-29T00:00:00/2025-09-28T00:00:00",
+# "cik:0000320193"), and the concept is a string until fact validation turns it
+# into a QName. factDimValue is the one place that turns a stored value into the
+# value the language sees, so a property (`$fact.period`) and a filter
+# (`@period = ...`) cannot disagree about it.
+
+def _factPrefixNamespaces(fact) -> dict:
+    """Prefix bindings for the SQNames and QNames in a fact's dimension values."""
+    # _prefixNamespaces is loader state on the module, not a model property.
+    return getattr(fact.module, "_prefixNamespaces", None) or {}
+
+def _resolvePrefixed(fact, value):
+    """A 'prefix:local' string as a QName, or the string when the prefix is unbound.
+
+    Not arelle's qname(): an SQName's local part may start with a digit (an
+    entity identifier such as cik:0000320193), which is not an NCName.
+    """
+    if not isinstance(value, str):
+        return value
+    prefix, sep, local = value.partition(":")
+    ns = _factPrefixNamespaces(fact).get(prefix) if sep else None
+    if ns is None:
+        return value
+    return QName(prefix, ns, local)
+
+def _dayEnding(dt):
+    """The day an instant closes: an instant at midnight is the end of the day before.
+
+    An OIM period writes the end of 27 September as 2025-09-28T00:00:00, as the
+    XBRL 2.1 date 2025-09-27 converts to. The language names that instant by the
+    day it closes, so `date('2025-09-27')` matches it, and a duration's `end` is
+    its last day.
+    """
+    from datetime import time, timedelta
+    if dt.time() == time(0) and dt.tzinfo is None:
+        return dt - timedelta(days=1), True
+    return dt, False
+
+def _periodFormulaValue(fact, per) -> FormulaValue:
+    """A stored period as a date (an instant) or a duration of whole days."""
+    from datetime import datetime
+    # Fact validation leaves the parsed interval beside the lexical value.
+    interval = fact.factDimensions.get("_periodValue")
+    if interval is None:
+        from arelle.ModelValue import timeInterval
+        try:
+            interval = timeInterval(per)
+        except (ValueError, TypeError, AttributeError):
+            return FormulaValue(FormulaValueType.STRING, per)
+    plain = lambda d: datetime(d.year, d.month, d.day, d.hour, d.minute, d.second)
+    endDay, endOfDay = _dayEnding(plain(interval.end))
+    if interval.start is None:
+        return FormulaValue(FormulaValueType.DATE, InstantValue(endDay))
+    return FormulaValue(FormulaValueType.DURATION,
+                        DateRangeValue(plain(interval.start), endDay, endOfDay=endOfDay))
+
+def factDimValue(fact, dimQn, ctx=None) -> FormulaValue:
+    """A fact's value for one dimension, typed as the language sees it."""
+    value = (fact.factDimensions or {}).get(dimQn)
+    if value is None:
+        return NONE_VALUE
+    if isinstance(dimQn, QName) and dimQn.namespaceURI == _xbrlNs():
+        local = dimQn.localName
+        if local == "period":
+            return _periodFormulaValue(fact, value)
+        if local == "entity":
+            # Wrapped as ENTITY so .name / .scheme / .id chains work.
+            return FormulaValue(FormulaValueType.ENTITY, _resolvePrefixed(fact, value))
+        if local == "unit":
+            # Wrapped as UNIT_VALUE so .numerator / .denominator chains work.
+            return FormulaValue(FormulaValueType.UNIT_VALUE, value)
+        if local == "concept":
+            return _wrap(_resolvePrefixed(fact, value), FormulaValueType.QNAME)
+    return FormulaValue.fromScalar(value)
+
 def _factPropPeriod(fact, args, ctx):
-    dims = fact.factDimensions
     from arelle.ModelValue import qname as mkQn
-    periodQn = mkQn(_xbrlNs(), "period")
-    period = dims.get(periodQn)
-    return _wrap(period)
+    return factDimValue(fact, mkQn(_xbrlNs(), "period"), ctx)
 
 def _factPropEntity(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
-    entityQn = mkQn(_xbrlNs(), "entity")
-    ev = fact.factDimensions.get(entityQn)
-    if ev is None:
-        return NONE_VALUE
-    # Wrap as ENTITY so .name / .local-name / .namespace-uri chains work.
-    return FormulaValue(FormulaValueType.ENTITY, ev)
+    return factDimValue(fact, mkQn(_xbrlNs(), "entity"), ctx)
 
 def _factPropUnit(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
-    unitQn = mkQn(_xbrlNs(), "unit")
-    uv = fact.factDimensions.get(unitQn)
-    if uv is None:
-        return NONE_VALUE
-    # Wrap as UNIT_VALUE so .numerator / .denominator chains work.
-    return FormulaValue(FormulaValueType.UNIT_VALUE, uv)
+    return factDimValue(fact, mkQn(_xbrlNs(), "unit"), ctx)
 
 def _factPropConcept(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
-    conceptQn = mkQn(_xbrlNs(), "concept")
-    qn = fact.factDimensions.get(conceptQn)
+    qn = factDimValue(fact, mkQn(_xbrlNs(), "concept"), ctx).value
     if qn is None:
         return NONE_VALUE
     # Look up the concept in the fact's own model: a rule may query a model
@@ -104,10 +166,10 @@ def _factPropConcept(fact, args, ctx):
     return _wrap(qn, FormulaValueType.QNAME)
 
 def _factPropDimensions(fact, args, ctx):
-    dims = {k: v for k, v in fact.factDimensions.items()}
+    # String keys are private slots (fact validation's _periodValue), not dimensions.
     return FormulaValue(FormulaValueType.DICT, {
-        FormulaValue(FormulaValueType.QNAME, k): FormulaValue.fromScalar(v)
-        for k, v in dims.items()
+        FormulaValue(FormulaValueType.QNAME, k): factDimValue(fact, k, ctx)
+        for k in (fact.factDimensions or {}) if isinstance(k, QName)
     })
 
 def _factPropValue(fact, args, ctx):
@@ -173,10 +235,9 @@ def _factPropName(fact, args, ctx):
     return _wrap(getattr(fact, "name", None), FormulaValueType.QNAME)
 
 def _factPropIsNil(fact, args, ctx):
-    from .FormulaDuplicates import effectiveFactValue
-    fv = effectiveFactValue(fact)
-    return FormulaValue(FormulaValueType.BOOLEAN,
-                        fv is not None and fv.value is None)
+    # By the xbrl:nil property, as the nil filters decide it.
+    from .FormulaInterpreter import _isNil
+    return FormulaValue(FormulaValueType.BOOLEAN, _isNil(fact))
 
 def _factPropDimension(fact, args, ctx):
     """fact.dimension(dimQName) → member value"""
@@ -186,7 +247,7 @@ def _factPropDimension(fact, args, ctx):
     dimQn = dimArg.value if dimArg.type == FormulaValueType.QNAME else None
     if dimQn is None:
         raise FormulaRuntimeError("fact.dimension() argument must be a QName")
-    return FormulaValue.fromScalar(fact.factDimensions.get(dimQn))
+    return factDimValue(fact, dimQn, ctx)
 
 def _factPropIsFact(fact, args, ctx):
     return FormulaValue(FormulaValueType.BOOLEAN, True)
@@ -205,8 +266,7 @@ def _factPropId(fact, args, ctx):
     return _wrap(fid, FormulaValueType.STRING) if fid is not None else NONE_VALUE
 
 def _factPropInstance(fact, args, ctx):
-    txmyMdl = getattr(fact, "parent", None) or ctx.txmyMdl
-    return FormulaValue(FormulaValueType.TAXONOMY, txmyMdl)
+    return FormulaValue(FormulaValueType.TAXONOMY, _mdlOf(fact, ctx))
 
 def _factPropCubes(fact, args, ctx):
     from XbrlModel.XbrlCube import XbrlCube
@@ -238,18 +298,15 @@ def _factPropAspects(fact, args, ctx):
     coreLocals = ("concept", "period", "entity", "unit", "language")
     coreNs = _xbrlNs()
     aspects = {}
-    for k, v in fact.factDimensions.items():
+    for k in fact.factDimensions or ():
         if isinstance(k, QName) and k.namespaceURI == coreNs and k.localName in coreLocals:
-            aspects[FormulaValue(FormulaValueType.QNAME, k)] = FormulaValue.fromScalar(v)
+            aspects[FormulaValue(FormulaValueType.QNAME, k)] = factDimValue(fact, k, ctx)
     return FormulaValue(FormulaValueType.DICT, aspects)
 
 def _factPropNamespaceMap(fact, args, ctx):
     nsMap = {}
-    # Try fact.parent (factspace / module) for _prefixNamespaces, else txmyMdl
-    src = getattr(fact, "parent", None)
-    nsm = getattr(src, "_prefixNamespaces", None) if src is not None else None
-    if not nsm:
-        nsm = getattr(ctx.txmyMdl, "_prefixNamespaces", None) or {}
+    # The fact's module binds the prefixes its values use; else the evaluated model's.
+    nsm = _factPrefixNamespaces(fact) or getattr(ctx.txmyMdl, "_prefixNamespaces", None) or {}
     for prefix, uri in nsm.items():
         nsMap[_wrap(prefix or "None", FormulaValueType.STRING)] = _wrap(uri, FormulaValueType.STRING)
     return FormulaValue(FormulaValueType.DICT, nsMap)
@@ -2022,9 +2079,9 @@ def getProperty(
             if propName == "end":
                 return FormulaValue(FormulaValueType.DATE, InstantValue(value.end))
             if propName == "days":
-                return FormulaValue(FormulaValueType.INTEGER, (value.end - value.start).days)
+                return FormulaValue(FormulaValueType.INTEGER, value.length.days)
             if propName == "time-span":
-                return FormulaValue(FormulaValueType.DURATION, TimeSpanValue(value.end - value.start))
+                return FormulaValue(FormulaValueType.DURATION, TimeSpanValue(value.length))
             if propName == "date":
                 return FormulaValue(FormulaValueType.DATE, InstantValue(value.start))
         if isinstance(value, TimeSpanValue):
