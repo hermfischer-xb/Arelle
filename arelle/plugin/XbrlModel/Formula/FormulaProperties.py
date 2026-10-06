@@ -25,6 +25,7 @@ from .DateTimeSupport import (
     TimeSpanValue,
     parse_date_string,
     parse_time_span_string,
+    period_from_interval,
 )
 
 try:
@@ -91,22 +92,8 @@ def _resolvePrefixed(fact, value):
         return value
     return QName(prefix, ns, local)
 
-def _dayEnding(dt):
-    """The day an instant closes: an instant at midnight is the end of the day before.
-
-    An OIM period writes the end of 27 September as 2025-09-28T00:00:00, as the
-    XBRL 2.1 date 2025-09-27 converts to. The language names that instant by the
-    day it closes, so `date('2025-09-27')` matches it, and a duration's `end` is
-    its last day.
-    """
-    from datetime import time, timedelta
-    if dt.time() == time(0) and dt.tzinfo is None:
-        return dt - timedelta(days=1), True
-    return dt, False
-
 def _periodFormulaValue(fact, per) -> FormulaValue:
     """A stored period as a date (an instant) or a duration of whole days."""
-    from datetime import datetime
     # Fact validation leaves the parsed interval beside the lexical value.
     interval = fact.factDimensions.get("_periodValue")
     if interval is None:
@@ -115,12 +102,16 @@ def _periodFormulaValue(fact, per) -> FormulaValue:
             interval = timeInterval(per)
         except (ValueError, TypeError, AttributeError):
             return FormulaValue(FormulaValueType.STRING, per)
-    plain = lambda d: datetime(d.year, d.month, d.day, d.hour, d.minute, d.second)
-    endDay, endOfDay = _dayEnding(plain(interval.end))
-    if interval.start is None:
-        return FormulaValue(FormulaValueType.DATE, InstantValue(endDay))
-    return FormulaValue(FormulaValueType.DURATION,
-                        DateRangeValue(plain(interval.start), endDay, endOfDay=endOfDay))
+    period = period_from_interval(interval.start, interval.end)
+    return FormulaValue(FormulaValueType.DATE if isinstance(period, InstantValue)
+                        else FormulaValueType.DURATION, period)
+
+def _refuseAtReportTime(ctx, what: str) -> None:
+    """Cube membership is not known when report-time expressions are evaluated."""
+    globalCtx = getattr(ctx, "globalCtx", ctx)
+    if globalCtx is not None and getattr(globalCtx, "reportTimeDepth", 0):
+        from .FormulaParameters import ReportTimeViolation
+        raise ReportTimeViolation(f"{what} reads cube membership")
 
 def factDimValue(fact, dimQn, ctx=None) -> FormulaValue:
     """A fact's value for one dimension, typed as the language sees it."""
@@ -269,6 +260,7 @@ def _factPropInstance(fact, args, ctx):
     return FormulaValue(FormulaValueType.TAXONOMY, _mdlOf(fact, ctx))
 
 def _factPropCubes(fact, args, ctx):
+    _refuseAtReportTime(ctx, "a fact's cubes")
     from XbrlModel.XbrlCube import XbrlCube
     from arelle.ModelValue import qname as mkQn
     txmy = ctx.txmyMdl
@@ -1214,6 +1206,7 @@ def _cubeProp(cube, propName: str, args, ctx) -> FormulaValue:
     if propName == "groups":
         return _groupsOf(mdl, cube.name)
     if propName == "facts":
+        _refuseAtReportTime(ctx, "a cube's facts")
         from XbrlModel.XbrlFact import XbrlFact
         from arelle.ModelValue import qname as mkQn
         cubeDimQn = mkQn(_xbrlNs(), "cube")

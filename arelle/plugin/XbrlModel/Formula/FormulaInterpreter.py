@@ -86,15 +86,21 @@ def evaluateRuleSet(globalCtx: FormulaGlobalContext) -> None:
     Results are collected into globalCtx.results and logged via the controller.
     """
     ruleSet = globalCtx.ruleSet
+    if globalCtx.parameters is None:
+        globalCtx.prepareParameters()
 
-    # Evaluate constants in declaration order (they may depend on each other)
+    # Evaluate constants in declaration order. One that reads a constant or
+    # parameter not yet evaluated evaluates it then (FormulaGlobalContext.constantValue).
     for constDecl in ruleSet.constants:
         try:
-            val = _evalConstant(constDecl, globalCtx)
-            globalCtx.constants[constDecl.name] = val
+            globalCtx.constantValue(constDecl.name)
         except Exception as exc:
             globalCtx.log("WARNING", f"formula:constant:{constDecl.name}",
                           f"Error evaluating constant ${constDecl.name}: {exc}")
+
+    # Every parameter is determined, as XBRL Formula 1.0 evaluates every
+    # parameter, so that one in error is reported whether or not a rule reads it.
+    globalCtx.parameters.determineAll()
 
     # Run rules
     for rule in ruleSet.allRules:
@@ -110,7 +116,7 @@ def evaluateRuleSet(globalCtx: FormulaGlobalContext) -> None:
 MAX_ITERATIONS = 10000
 
 
-def evaluateRule(rule, globalCtx: FormulaGlobalContext) -> None:
+def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> None:
     """Run one output or assert rule, once per iteration of its body.
 
     A query block evaluates once unless something in it multiplies the
@@ -124,6 +130,10 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext) -> None:
     does not cancel the iterations another query found. Where no query finds
     anything the rule still runs once, on the start iteration, with each bound
     to `none`.
+
+    onIteration(ruleCtx, guard), when given, replaces running the rule in each
+    iteration: a parameter's select is expanded into iterations exactly as a
+    rule body is, and only needs their values.
     """
     from .FormulaIterations import collectIterationSources
 
@@ -134,7 +144,10 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext) -> None:
     if not loops and not queries:
         ruleCtx = FormulaRuleContext(globalCtx)
         ruleCtx.ruleName = rule.name
-        _runRuleIteration(rule, ruleCtx, globalCtx, boundFacts=[])
+        if onIteration is not None:
+            onIteration(ruleCtx, None)
+        else:
+            _runRuleIteration(rule, ruleCtx, globalCtx, boundFacts=[])
         return
 
     emitted = [0]
@@ -174,7 +187,10 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext) -> None:
             varName = src.inner.get("varName")
             if value is not None and varName:
                 ruleCtx.bindVariable(varName, value)
-        _runRuleIteration(rule, ruleCtx, globalCtx, boundFacts=[], emitGuard=guard)
+        if onIteration is not None:
+            onIteration(ruleCtx, guard)
+        else:
+            _runRuleIteration(rule, ruleCtx, globalCtx, boundFacts=[], emitGuard=guard)
 
     def joinQueries(bindings):
         """Run once per alignment the rule's fact queries between them select."""
@@ -536,7 +552,10 @@ def _evalConstant(constDecl, globalCtx: FormulaGlobalContext) -> FormulaValue:
     if isinstance(constDecl.expr, dict) and constDecl.expr.get("exprName") == "funcDecl":
         # User-defined function: wrap as a callable stored in a FormulaValue
         funcNode = constDecl.expr
-        params = [p.get("paramName") for p in funcNode.get("params", [])]
+        params = funcNode.get("params") or []
+        if isinstance(params, dict):        # one parameter parses to the node itself
+            params = [params]
+        params = [p.get("paramName") for p in params]
         bodyNode = funcNode.get("body")
 
         def userFunc(args: List[FormulaValue], ctx: FormulaRuleContext) -> FormulaValue:
@@ -1617,6 +1636,8 @@ def _loose_eq(actual, expected) -> bool:
 
 def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     """`@cube`, `@cube = *`, `@cube = none`, `@cube.name = X`, `@cube.drs-role = R`."""
+    from .FormulaProperties import _refuseAtReportTime
+    _refuseAtReportTime(ctx, "the @cube filter")
     from XbrlModel.XbrlCube import XbrlCube
     from XbrlModel.XbrlFact import XbrlFact  # noqa
     from arelle.ModelValue import qname as mkQn

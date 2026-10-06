@@ -22,9 +22,10 @@ from typing import Any, Iterable, List, Optional, Tuple
 from arelle.ModelValue import QName
 
 
-# Functions whose result depends on state outside the model.
+# Functions whose result depends on state outside the model. model() is the
+# model being evaluated and is static; model(url) is another model.
 _NON_STATIC_FUNCTIONS = frozenset((
-    "model", "taxonomy", "instance",
+    "taxonomy", "instance",
     "csv-data", "excel-data", "json-data", "xml-data-flat",
     "random",
 ))
@@ -72,6 +73,8 @@ def nonStaticReasons(expr: Any) -> List[str]:
             name = funcCall.get("funcName")
             if name in _NON_STATIC_FUNCTIONS:
                 reasons.append(f"the function {name}() reaches outside the model")
+            elif name == "model" and funcCall.get("args"):
+                reasons.append("model(url) reaches another model")
         navigate = node.get("navigateExpr")
         if isinstance(navigate, dict) and navigate.get("modelValue") is not None:
             reasons.append("a navigate `model` clause reaches another model")
