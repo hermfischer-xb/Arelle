@@ -101,7 +101,7 @@ def alignmentKeyOf(fact: "XbrlFact", conceptDimQn: Optional[QName] = None) -> Al
         conceptDimQn = conceptCoreDim
 
     items: List[Tuple[QName, Any]] = []
-    for dimQn, value in fact.factDimensions.items():
+    for dimQn, value in (fact.factDimensions or {}).items():
         if dimQn == conceptDimQn:
             continue
         # Normalise typed-dimension values to something hashable

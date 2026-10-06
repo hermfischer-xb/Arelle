@@ -382,7 +382,7 @@ def _findFactsByLocalName(globalCtx: FormulaGlobalContext, localName: str) -> Li
     return [
         obj for obj in globalCtx.txmyMdl.filterNamedObjects(XbrlFact)
         if (getattr(obj, "_xValid", VALID) >= VALID
-            and isinstance(obj.factDimensions.get(conceptDimQn), QName)
+            and isinstance((obj.factDimensions or {}).get(conceptDimQn), QName)
             and obj.factDimensions[conceptDimQn].localName == localName)
     ]
 
@@ -940,14 +940,13 @@ def _formatCollectionItem(val: FormulaValue) -> str:
 def _formatLabel(label) -> str:
     """Format an XbrlLabel as '(roleUri) (lang) value' (Xule convention)."""
     from arelle.ModelValue import QName as _QN
-    rt = getattr(label, "labelType", None)
+    rt = label.labelType
     roleUri = None
     # Try to resolve labelType QName -> URI via the taxonomy model
     if isinstance(rt, _QN):
         # walk through the label's module to find the taxonomy
-        mod = getattr(label, "module", None)
-        txmy = getattr(mod, "taxonomy", None) if mod is not None else None
-        no = getattr(txmy, "namedObjects", None) if txmy is not None else None
+        txmy = label.xbrlCompMdl
+        no = txmy.namedObjects if txmy is not None else None
         if no is not None:
             obj = no.get(rt)
             roleUri = getattr(obj, "uri", None)
@@ -960,19 +959,19 @@ def _formatLabel(label) -> str:
             roleUri = f"http://www.xbrl.org/2003/role/{rt.localName}"
     if roleUri is None:
         roleUri = str(rt) if rt is not None else ""
-    lang = getattr(label, "language", "") or ""
-    value = getattr(label, "value", "") or ""
+    lang = label.language or ""
+    value = label.value or ""
     return f"({roleUri}) ({lang}) {value}"
 
 
 def _formatReference(ref) -> str:
     """Format an XbrlReference for output."""
-    rt = getattr(ref, "referenceType", None)
-    parts = getattr(ref, "properties", ()) or ()
+    rt = ref.referenceType
+    parts = ref.properties or ()
     pieces = []
     for p in parts:
-        pq = getattr(p, "property", None)
-        pv = getattr(p, "value", "")
+        pq = p.property
+        pv = p.value
         pn = getattr(pq, "localName", None) if pq is not None else None
         if pn is None:
             pn = str(pq) if pq is not None else "?"
@@ -981,8 +980,8 @@ def _formatReference(ref) -> str:
 
 
 def _formatPart(part) -> str:
-    pq = getattr(part, "property", None)
-    pv = getattr(part, "value", "")
+    pq = part.property
+    pv = part.value
     return f"{pq}: {pv}"
 
 
@@ -1005,8 +1004,7 @@ def _formatValue(val: FormulaValue) -> str:
     if val.type == FormulaValueType.NAMESPACE:
         return str(getattr(val.value, "uri", val.value))
     if val.type == FormulaValueType.DATA_TYPE:
-        n = getattr(val.value, "name", val.value)
-        return str(n)
+        return str(val.value.name)
     if val.type == FormulaValueType.NONE:
         return "none"
     if val.type == FormulaValueType.SKIP:
@@ -1187,7 +1185,7 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         from arelle.XmlValidateConst import VALID
         seedFacts = [
             f for f in sourceMdl.filterNamedObjects(XbrlFact)
-            if getattr(f, "factDimensions", None)
+            if f.factDimensions
             and getattr(f, "_xValid", VALID) >= VALID
         ]
     elif conceptFilter is not None:
@@ -1214,7 +1212,7 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         from arelle.XmlValidateConst import VALID
         seedFacts = [
             f for f in ctx.globalCtx.txmyMdl.filterNamedObjects(XbrlFact)
-            if getattr(f, "factDimensions", None)
+            if f.factDimensions
             and getattr(f, "_xValid", VALID) >= VALID
         ]
 
@@ -1634,7 +1632,7 @@ def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
             if cellFacts:
                 for cellEntries in cellFacts.values():
                     if any(f is fact for f, _ in cellEntries):
-                        cubeNames.append(getattr(cube, "name", None))
+                        cubeNames.append(cube.name)
                         break
         factCubeQns = [n for n in cubeNames if n is not None]
     elif isinstance(factCubeNames, (list, tuple, set)):
@@ -1662,7 +1660,7 @@ def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
         else:
             val = None
             if propChain[0] == "name":
-                val = getattr(cube, "name", None) if cube else cubeQn
+                val = cube.name if cube else cubeQn
             elif propChain[0] in ("drs-role", "drsRole", "role"):
                 val = getattr(cube, "drsRole", None) if cube else None
             if val is not None and _loose_eq(val, expected):

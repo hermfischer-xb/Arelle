@@ -1668,7 +1668,7 @@ def _fn_clark(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVal
     if a.type == FormulaValueType.QNAME:
         qn = v
     elif a.type == FormulaValueType.CONCEPT:
-        qn = getattr(v, "name", None)
+        qn = v.name
     if not isinstance(qn, QName):
         raise FormulaRuntimeError("clark() argument must be a QName or concept")
     return FormulaValue(FormulaValueType.STRING,
