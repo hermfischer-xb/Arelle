@@ -1147,6 +1147,36 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
                 spanByFV[id(fv)] = hit
         print(f"[span] located by glyph span={len(spanByFV)}", flush=True)
 
+        # A short fact in a section header (an N-CSR's <h1> "MidCap Fund"): two words, too
+        # short to be a phrase or a span, and repeated on every class's report. The header is
+        # the first text of its report, so the first occurrence on the page it is expected on.
+        inHeader = {fid for h in hm.root.iter() if _local(h.tag).lower() == "h1"
+                    for d in h.iter() if d.get("id") in allIds for fid in [d.get("id")]}
+        headerHits = 0
+        for fv in unmappedFVs:
+            ids = perFV[id(fv)]
+            if id(fv) in phraseByFV or id(fv) in spanByFV or not any(i in inHeader for i in ids):
+                continue
+            r = hm.idRange.get(ids[0])
+            vn = _norm(valueTextByFV.get(id(fv), ""))
+            if not vn or not (r and r[1] is not None):
+                continue
+            expected = _nearest_page(r[0])
+            if expected is None:
+                continue
+            lo, hi = _bracket_pages(r[0])
+            for page in sorted(range(max(1, lo, expected - 1), min(len(geom._doc), hi, expected + 1) + 1),
+                               key=lambda q: (abs(q - expected), q)):
+                norm, n2o, boxes = geom._page(page)
+                pos = norm.find(vn)
+                if pos >= 0:
+                    rects = [boxes[n2o[k]] for k in range(pos, pos + len(vn))]
+                    spanByFV[id(fv)] = [(page, (round(min(q[0] for q in rects), 2), round(min(q[1] for q in rects), 2),
+                                                round(max(q[2] for q in rects), 2), round(max(q[3] for q in rects), 2)))]
+                    headerHits += 1
+                    break
+        print(f"[header] section-header facts located by first occurrence={headerHits}", flush=True)
+
     stats = _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId,
                      os.path.basename(pdfPath),
                      valueTextByFV=valueTextByFV, mcidCache=mcidCache, geom=geom,
@@ -1444,31 +1474,86 @@ class _PdfGeometry:
             covered = set()
             for i, _p in ch:
                 covered.update(range(i, i + _SPAN_K))
-            return ch, covered, (n2o, boxes)
+            return ch, covered, (n2o, boxes, _SPAN_K)
 
         def box(ch, geo):
-            n2o, boxes = geo
-            rects = [boxes[n2o[p + k]] for _i, p in ch for k in range(_SPAN_K) if p + k < len(n2o)]
+            n2o, boxes, K = geo
+            rects = [boxes[n2o[p + k]] for _i, p in ch for k in range(K) if p + k < len(n2o)]
             xs = [r[0] for r in rects] + [r[2] for r in rects]
             ys = [r[1] for r in rects] + [r[3] for r in rects]
             return (round(min(xs), 2), round(min(ys), 2), round(max(xs), 2), round(max(ys), 2))
 
-        best = None
+        def cluster(page):
+            """Unordered: the stretch of page text, no longer than _SPAN_SPREAD times the
+            block, in which most of the block's grams occur, in any order and however often.
+            A table printed beside another is drawn interleaved with it (both tables'
+            labels, then both tables' values), which no in-order chain follows, and the two
+            share words ("Percent of Net Assets", "Total Net Assets"), so a gram need not be
+            unique on the page."""
+            norm, n2o, boxes = self._page(page)
+            K = _SPAN_K_UNORDERED
+            where: Dict[str, List[int]] = {}
+            for i in range(len(norm) - K + 1):
+                where.setdefault(norm[i:i + K], []).append(i)
+            pairs = sorted((pos, i) for i in range(len(b) - K + 1) for pos in where.get(b[i:i + K], ()))
+            width, j = int(_SPAN_SPREAD * len(b)), 0
+            inWin: Dict[int, int] = {}
+            bestN, bestJK = 0, (0, -1)
+            for k, (pos, i) in enumerate(pairs):
+                inWin[i] = inWin.get(i, 0) + 1
+                while pos - pairs[j][0] > width:
+                    jj = pairs[j][1]
+                    inWin[jj] -= 1
+                    if not inWin[jj]:
+                        del inWin[jj]
+                    j += 1
+                if len(inWin) > bestN:
+                    bestN, bestJK = len(inWin), (j, k)
+            ch, seen = [], set()
+            for pos, i in pairs[bestJK[0]:bestJK[1] + 1]:
+                if i not in seen:
+                    seen.add(i)
+                    ch.append((i, pos))
+            covered = set()
+            for i, _p in ch:
+                covered.update(range(i, i + K))
+            return ch, covered, (n2o, boxes, K)
+
+        def numbersFound(regions) -> bool:
+            """At least half the block's numbers in the page text the match spans: every
+            fund's statistics box has the same words, and only its own numbers."""
+            nums = [w for w in _phrase_toks(text) if any(c.isdigit() for c in w)]
+            if len(nums) < 2:
+                return True
+            # the stretch matched and a block's length either side: a box can print all its
+            # labels and then all its values, and only the labels are long enough to match
+            spanned = "".join(self._page(pg)[0][max(0, min(p for _i, p in ch) - len(b)):
+                                                max(p for _i, p in ch) + _SPAN_K + len(b)]
+                              for pg, ch in regions)
+            return sum(1 for w in nums if w in spanned) >= _TOKEN_BLOCK_COVER * len(nums)
+
+        def best_of(pages, match):
+            best = None
+            for page in pages:
+                try:
+                    ch, cov, geo = match(page)
+                except Exception:
+                    continue
+                if ch and (best is None or len(cov) > len(best[2])):
+                    best = (page, ch, cov, geo)
+            return best
+
         lo, hi = pageRange or (1, npages)
-        for page in sorted(range(max(1, lo, expected - _SPAN_PAGE_WINDOW),
-                                 min(npages, hi, expected + _SPAN_PAGE_WINDOW) + 1),
-                           key=lambda q: (abs(q - expected), q)):
-            try:
-                ch, cov, geo = chain(page)
-            except Exception:
-                continue
-            if ch and (best is None or len(cov) > len(best[2])):
-                best = (page, ch, cov, geo)
+        pages = sorted(range(max(1, lo, expected - _SPAN_PAGE_WINDOW),
+                             min(npages, hi, expected + _SPAN_PAGE_WINDOW) + 1),
+                       key=lambda q: (abs(q - expected), q))
+        need = _SPAN_MIN_COVER * len(b)
+        best = best_of(pages, chain)
         if best is None:
             return None
         page, ch, cov, geo = best
-        out = [(page, box(ch, geo))]
-        if len(cov) < _SPAN_MIN_COVER * len(b) and page < npages:
+        regions, out = [(page, ch)], [(page, box(ch, geo))]
+        if len(cov) < need and page < npages:
             # the rest may be on the next page: chain what the first page did not cover
             last = max(cov)
             try:
@@ -1477,16 +1562,25 @@ class _PdfGeometry:
                 ch2, cov2 = [], set()
             ch2 = [(i, p) for i, p in ch2 if i > last]
             cov2 = {k for i, _p in ch2 for k in range(i, i + _SPAN_K)}
-            if ch2:
+            if ch2 and len(cov | cov2) >= need:
                 cov = cov | cov2
+                regions.append((page + 1, ch2))
                 out.append((page + 1, box(ch2, geo2)))
-        return out if len(cov) >= _SPAN_MIN_COVER * len(b) else None
+        if len(cov) < need:                     # no in-order match: try the unordered one
+            best = best_of(pages, cluster)
+            if best is None or len(best[2]) < need:
+                return None
+            page, ch, cov, geo = best
+            regions, out = [(page, ch)], [(page, box(ch, geo))]
+        return out if numbersFound(regions) else None
 
 
 _SPAN_K = 10                 # characters per gram: long enough to be unique on a page
 _SPAN_MAX_CHARS = 6000
 _SPAN_MIN_COVER = 0.6        # fraction of the text that must be matched
 _SPAN_PAGE_WINDOW = 2
+_SPAN_K_UNORDERED = 6        # shorter grams for the unordered match: interleaving breaks phrases
+_SPAN_SPREAD = 3.0           # an unordered match may spread over this many times the block's length
 
 
 def _bbox_source(page: int, bbox) -> List[Dict[str, Any]]:
@@ -1610,8 +1704,12 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
         if indexPages:
             starts = find_starts(indexPages)
         if len(starts) >= max(10, len(sectionHeaders) // 2):
+            # The last section has no next header to end it, and an N-CSR's financial statements
+            # follow the last fund report for hundreds of pages, repeating its figures; it is no
+            # longer than one and a half of the longest other section.
+            longest = max(starts[x + 1][1] - starts[x][1] for x in range(len(starts) - 1))
             for idx, (si, ri) in enumerate(starts):
-                end = starts[idx + 1][1] if idx + 1 < len(starts) else len(flat)
+                end = starts[idx + 1][1] if idx + 1 < len(starts) else min(len(flat), ri + (3 * longest) // 2)
                 secRange[si] = (ri, end)
     # candidate (htmlRow, pdfRow, score); score = value-subsequence coverage +
     # label similarity (label matched as a normalised string, since geometry may
@@ -1699,6 +1797,69 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
                 used.add((ri, j))
                 j += 1
 
+    byHi: Dict[int, List[Tuple[float, int]]] = {}
+    for hi, ri, sc in cands:
+        byHi.setdefault(hi, []).append((sc, ri))
+
+    def fits(r, ri, taken=None) -> bool:
+        """Every value of html row ``r`` in pdf row ``ri`` (in order, and not already placed when
+        ``taken`` is given), and its label there or on the lines either side."""
+        pr = flat[ri]
+        free = [n for j, (n, _b) in enumerate(pr["vals"]) if taken is None or (ri, j) not in taken]
+        j = 0
+        for x in free:
+            if j < len(r["vnorm"]) and x == r["vnorm"][j]:
+                j += 1
+        if j < len(r["vnorm"]):
+            return False                        # a value is missing or already taken
+        # labels compared on their letters: "%" or "$" beside a value is label text in the html
+        # (it sits outside the fact) but part of the value token in the pdf. A label that wraps
+        # ("Total Advisory Fees Paid (amount in / thousands)") is on the lines above and below the
+        # value, so those are searched too, on the same page.
+        ln = _letters(r["lnorm"])
+        near = "".join(_letters(flat[x]["label"]) for x in (ri - 1, ri, ri + 1)
+                       if 0 <= x < len(flat) and flat[x]["page"] == pr["page"])
+        return bool(ln) and (ln in near or _covered(ln, near) >= 0.9)
+
+    def single_best(good):
+        good.sort(reverse=True)
+        if not good or (len(good) > 1 and good[1][0] == good[0][0]):
+            return None                         # none, or two equally good rows: ambiguous
+        return good[0][1]
+
+    # Repair. Two share classes of one fund print the same fund-level Key Facts, and where a
+    # class's page reads its Key Facts box before its returns table the chain, having placed the
+    # returns, can only reach the NEXT class's copy -- out of section, and taking that class's
+    # values from it. Likewise a value the chain could only reach in a row without its label
+    # ("0.02%" alone, a line further on). A row the chain put outside its own section, or where its
+    # label is not, moves to a row inside its section that fits and that no other row holds; of
+    # two that fit equally (both side-by-side allocation tables have "Other Assets and
+    # Liabilities"), the one nearer the pdf rows of its placed html neighbours.
+    if secRange:
+        held = set(assign.values())
+        for hi in sorted(assign):
+            r, ri = htmlRows[hi], assign[hi]
+            rng = secRange.get(r.get("section", 0))
+            if not rng or (rng[0] <= ri < rng[1] and fits(r, ri)):
+                continue
+            good = sorted(((sc, ri2) for sc, ri2 in byHi.get(hi, ())
+                           if rng[0] <= ri2 < rng[1] and ri2 != ri and ri2 not in held and fits(r, ri2)),
+                          reverse=True)
+            if not good:
+                continue
+            tied = [ri2 for sc, ri2 in good if sc == good[0][0]]
+            if len(tied) > 1:
+                around = [assign[h] for h in (hi - 1, hi + 1) if h in assign]
+                if not around:
+                    continue
+                dist = sorted((min(abs(ri2 - a) for a in around), ri2) for ri2 in tied)
+                if dist[0][0] == dist[1][0]:
+                    continue                    # still ambiguous
+                tied = [dist[0][1]]
+            held.discard(ri)
+            held.add(tied[0])
+            assign[hi] = tied[0]
+
     for hi, ri in sorted(assign.items()):
         place(hi, ri)
 
@@ -1712,9 +1873,6 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
     # its values not already taken by another row.
     if assign:
         placedHis = sorted(assign)
-        byHi: Dict[int, List[Tuple[float, int]]] = {}
-        for hi, ri, sc in cands:
-            byHi.setdefault(hi, []).append((sc, ri))
         for hi in sorted(byHi):
             if hi in assign:
                 continue
@@ -1723,34 +1881,11 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
             pages = [flat[assign[placedHis[x]]]["page"] for x in (k - 1, k) if 0 <= x < len(placedHis)]
             lo, hi_pg = min(pages), max(pages)
             rng = secRange.get(r.get("section", 0))
-            good = []
-            for sc, ri in byHi[hi]:
-                pr = flat[ri]
-                if not (lo <= pr["page"] <= hi_pg) or (rng and not rng[0] <= ri < rng[1]):
-                    continue
-                free = [n for j, (n, _b) in enumerate(pr["vals"]) if (ri, j) not in used]
-                j = 0
-                for x in free:
-                    if j < len(r["vnorm"]) and x == r["vnorm"][j]:
-                        j += 1
-                if j < len(r["vnorm"]):
-                    continue                    # a value is missing or already taken
-                # labels compared on their letters: "%" or "$" beside a value is label text in the
-                # html (it sits outside the fact) but part of the value token in the pdf. A label
-                # that wraps ("Total Advisory Fees Paid (amount in / thousands)") is on the lines
-                # above and below the value, so those are searched too, on the same page.
-                ln = _letters(r["lnorm"])
-                near = "".join(_letters(flat[x]["label"]) for x in (ri - 1, ri, ri + 1)
-                               if 0 <= x < len(flat) and flat[x]["page"] == pr["page"])
-                if not ln or not (ln in near or _covered(ln, near) >= 0.9):
-                    continue
-                good.append((sc, ri))
-            if not good:
-                continue
-            good.sort(reverse=True)
-            if len(good) > 1 and good[1][0] == good[0][0]:
-                continue                        # two equally good rows: ambiguous
-            place(hi, good[0][1])
+            to = single_best([(sc, ri) for sc, ri in byHi[hi]
+                              if lo <= flat[ri]["page"] <= hi_pg and not (rng and not rng[0] <= ri < rng[1])
+                              and fits(r, ri, used)])
+            if to is not None:
+                place(hi, to)
     return placement
 
 
