@@ -8,6 +8,8 @@ compiled Tavi models, and stage a viewer that shows each filing's facts on a sec
 report: the company's PDF annual report, or its published web page. For prudential reporting, which has no
 document of its own, they generate Tavi models of EIOPA's Solvency II templates from EIOPA's published
 workbook, attach the facts of EIOPA's published sample reports, and show those facts in the templates.
+The same is done for De Nederlandsche Bank's statistical reporting (MES), whose published sample reports
+are xBRL-CSV files that the Tavi model reads as they are.
 
 **What this is.** The XBRL Model plugin is a working prototype on an Arelle branch, built by Herm Fischer
 while helping to draft the Tavi Public Working Draft (PWD). It is not Arelle production code, and it is not
@@ -20,13 +22,19 @@ What each part of the demonstration rests on, labelled as in the two pull reques
 | | what |
 |---|---|
 | **PWD** (the Tavi Public Working Draft, 2026-09-01) | the model, its validation and fact maps; fact value locators on XHTML and PDF documents; the layout objects (grid layout data tables) the templates are drawn from |
-| **tooling** (implements no specification beyond the PWD) | compiling legacy ESEF and SEC filings into Tavi models; aligning their facts to a PDF or web page; staging the viewer; the viewer overlay and its table surface; the EIOPA template generator and sample-fact converter |
+| **tooling** (implements no specification beyond the PWD) | compiling legacy ESEF and SEC filings into Tavi models; aligning their facts to a PDF or web page; staging the viewer; the viewer overlay and its table surface; the EIOPA template generator and sample-fact converter; the DNB template generator and sample-report writer |
 | **research** (the author's proposals, not part of the PWD, not adopted by XBRL International) | positional locators for HTML without ids; derived content (verdicts recorded by the processor); where the PWD leaves a layout point open, the reading used here: what a grid header's `span` counts, and axis groups as an open table's key columns and as z selections |
 
 The EIOPA models put every object in one `eiopa:` namespace, keeping the source prefix in the local name
 (`s2md_met:mi686` becomes `eiopa:s2md_met_mi686`), because a module may define objects only in its own
 namespace. A production model would instead use EIOPA's own dictionaries; this is a workaround for the
 demonstration, not a proposal.
+
+The DNB model keeps DNB's own names in DNB's namespaces, so DNB's xBRL-CSV reports are read through the PWD's
+table-template fact map without conversion. Only the dimension namespace is given in DNB's workbook; the
+others follow DNB's pattern and are inferred. A report's entity, period and currency are xBRL-CSV report
+parameters, for which the PWD's fact source has no counterpart: the report writer puts them into the report's
+table templates as values. That too is a workaround for the demonstration.
 
 The code is pinned by the tag **`da2026-final`** in two repositories:
 
@@ -89,6 +97,8 @@ Put each file in `$DEMO/inputs/<folder>/` with the name shown. Those names are w
 | `principal/` | [EDGAR filing 0000898745-24-000723](https://www.sec.gov/Archives/edgar/data/898745/000089874524000723/), Principal Funds N-CSR: the inline primary document as disseminated, saved as `primary-document.htm`, plus `principal-20241031.xsd` and the images it references | `primary-document.htm`: `48f21eb13921236cf205a26830975457c0838c67936b8dd2dab90b32a5bf43dd` |
 | `eiopa-2.10/EIOPA_Solvency_II_DPM_Annotated_Templates_2.10.0.xlsx` | [EIOPA](https://dev.eiopa.europa.eu/Taxonomy/Full/2.10.0/S2/EIOPA_Solvency_II_DPM_Annotated_Templates_2.10.0.xlsx), the Solvency II 2.10.0 DPM annotated templates, from [EIOPA's supervisory reporting page](https://www.eiopa.europa.eu/tools-and-data/supervisory-reporting-dpm-and-xbrl_en) | `518980394e10913a68240238b65123f5bd4f2df5dffe56365a284c9388cbd0e6` |
 | `eiopa-2.10/EIOPA_SolvencyII_XBRL_Instance_documents_2.10.0.zip` | [EIOPA](https://dev.eiopa.europa.eu/Taxonomy/Full/2.10.0/S2/EIOPA_SolvencyII_XBRL_Instance_documents_2.10.0.zip), EIOPA's sample XBRL 2.1 reports for every Solvency II entry point, with random and zero values, from the same page | `31494f7a34dd03399002a33abc0d07df87ba6d927c74ce4d8dbea81a4297e7e2` |
+| `dnb-5.0.0/dnb-mes-dpm-dictionary-and-annotated-templates-5-0-0.xlsx` | [DNB](https://www.dnb.nl/en/login/dlr/statistical-reporting/macroeconomic-statistics-reporting-mesrep/documentation-mesrep/), the MES 5.0.0 DPM dictionary and annotated templates (Download section) | `10e49f8e3793499d9397a97eeacf97688e278029cc48683ada4bbb77fea15e33` |
+| `dnb-5.0.0/DNB MES xBRL-CSV Sample Instances 5.0.0/MES_5.0.0_MOD_DTC.zip` | the same page, "DNB MES xBRL-CSV Sample Instances 5.0.0": the sample report package for deposit-taking corporations (the folder has one per module) | `f00b40d63f99eafdcf4562f966db3660cc20068f74b5ef133469d1bbd1f8853c` |
 | `tavi-demo/tavi-demo-2026-09-01.zip` | [xbrl.org](https://www.xbrl.org/Specification/tavi/PWD-2026-09-01/demo/tavi-demo-2026-09-01.zip), the Tavi PWD's published demo, whose model viewer shows the generated templates as tables (step 8) | `4518c96461d7538953834d7506ad31a352023eb7a15ea7438f730adb8455d394` |
 | `principal/principal.pdf` | **made by hand:** `primary-document.htm` through *Create PDF from web page*, as for Pacific Life | varies |
 
@@ -290,6 +300,34 @@ with its Assets and Liabilities bands, the nested categories beneath them, 83 ro
 R1000 (excess of assets over liabilities), and the columns C0010 (Solvency II value) and C0020 (statutory
 accounts value).
 
+## 8b. Dutch statistical reporting, read as published (demo 3)
+
+DNB's MES workbook defines its templates through a dictionary: every template cell is resolved to its metric
+and dimensions. The generator turns the workbook into a Tavi model that keeps DNB's own names, with a grid
+layout, a cube and a table template per template; the table templates match the columns of DNB's xBRL-CSV
+files. A sample report package then becomes a Tavi report: the model, cut down to the package's templates,
+with a fact source for each of its CSV files.
+
+```bash
+export TOOLS=$DEMO/arelle/arelle/plugin/XbrlModel/tools DNB="$IN/dnb-5.0.0"
+mkdir -p $OUT/dnb && cd $OUT/dnb
+python3 $TOOLS/tlbTemplate-dnb.py $DNB/dnb-mes-dpm-dictionary-and-annotated-templates-5-0-0.xlsx dnb-mes.json
+arelle validate.log --plugins XbrlModel -f dnb-mes.json --validate
+unzip -q -o "$DNB/DNB MES xBRL-CSV Sample Instances 5.0.0/MES_5.0.0_MOD_DTC.zip" -d samples
+python3 $TOOLS/dnbSampleReport.py dnb-mes.json samples/MES_5.0.0_MOD_DTC report-DTC.json
+arelle report-DTC.log --plugins XbrlModel -f report-DTC.json --validate
+arelle stage-DTC.log --plugins "XbrlModel|$VIEWER_PLUGIN" -f report-DTC.json --saveXbrlModelViewer stage-DTC
+```
+
+**Check:** the generator prints `tables 136, cubes 1079, …` and `problems: 0`; `validate.log` has no message
+other than `[info]` lines (136 report cubes, and 943 exclusion cubes for the cells the workbook marks invalid).
+The writer prints `34 table files bound to fact sources; entity lei:LEGALIDENTIFIER20P32, period
+2026-01-01T00:00:00`. `report-DTC.log` has no message other than `[info]` lines: the 416 facts read from the
+CSV files all fit a cube. `stage-DTC.log` has `Staged iXBRL Viewer in stage-DTC; serve it and open
+ixbrlviewer.html?xbrlModel=report-DTC-model.json` (and the harmless `[viewer:exception]` line of step 8). The
+other module packages (`MES_5.0.0_MOD_IC.zip`, …) work
+the same way.
+
 ## 9. View
 
 ```bash
@@ -307,6 +345,7 @@ Open, in a browser:
 | Principal Funds N-CSR | `principal/stage-pdf/ixbrlviewer.html?xbrlModel=primary-document-model.json` |
 | EIOPA Solvency II templates, with the annual sample's facts | `eiopa/stage-tables/ixbrlviewer.html?xbrlModel=eiopa-ars-model.json` |
 | EIOPA S.02.01.01.01 balance sheet, with the quarterly sample's facts | `eiopa/stage-S.02.01/ixbrlviewer.html?xbrlModel=S.02.01.01.01-qrs-model.json` |
+| DNB MES templates, with the deposit-taking corporations sample | `dnb/stage-DTC/ixbrlviewer.html?xbrlModel=report-DTC-model.json` |
 
 Each staging step's log names its URL. If a name differs, use the one the log gives.
 
@@ -326,6 +365,12 @@ the **Search** results and the **Cubes** list each select and scroll to their ce
 (383 templates with data, 21,703 cells) opened with its facts bound in about 2.7 seconds, the balance sheet
 alone in under a second. EIOPA's sample entity `ABCDEFGHIJ0123456789` is not a valid LEI (it fails the
 ISO 17442 checksum); that is the sample's data, not a fault.
+
+**Check, DNB:** the page lists the 34 templates of the deposit-taking corporations sample. T01.02 is an open
+table: its one row has Listed shares, Afghanistan, Non-financial corporations and Parent company in its key
+columns and 19,000 in C010; selecting it shows `dnb_met:mi004` (Amount), € 19,000 at 31 December 2025, with
+its dimensions by label (Valuation: Transaction value, Flow: Operational result, …). A fact that DNB defines
+in two templates (the workbook marks such cells as duplicates) appears in both.
 
 ## 10. The same demonstrations in the Arelle desktop application
 
@@ -395,7 +440,10 @@ templates as tables, as in step 9. Loading and building the views for the whole 
 21,191 facts takes a little while before the browser opens. `$OUT/eiopa/eiopa.json`, the module without
 facts, opens in Arelle with no viewer: there is nothing to show in its tables.
 
-**Check:** as in step 9, EIOPA. If the browser shows "No source document specified", the viewer plugin is
+Open `$OUT/dnb/report-DTC.json` too: Arelle reads the report's facts from DNB's CSV files through its fact
+sources, validates them, and the viewer opens on DNB's templates.
+
+**Check:** as in step 9, EIOPA and DNB. If the browser shows "No source document specified", the viewer plugin is
 older than this code: update `$DEMO/viewer`, rebuild it (step 2) and restart Arelle.
 
 ## What these steps do not cover
