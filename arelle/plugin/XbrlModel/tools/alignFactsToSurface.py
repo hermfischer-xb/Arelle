@@ -335,6 +335,8 @@ def _build_html_model(htmlPath: str, factIds: Set[str], mediaType: str) -> HtmlM
 
 
 _CHART_WRAPPER_TOKENS = 30
+_TOKEN_BLOCK_WORDS = 12      # a fact this many tokens long is a block ...
+_TOKEN_BLOCK_COVER = 0.5     # ... and is placed by token alignment only when this much of it aligned
 
 
 _PARENT: Dict[Any, Any] = {}
@@ -984,12 +986,21 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
             if not ids:
                 continue
             pms = _fact_pms(ids, hm, h2p, Psrc)
-            pmsByFV[id(fv)] = pms
             parts: List[str] = []
+            aligned = 0
             for hid in ids:
                 r = hm.idRange.get(hid)
                 if r and r[1] is not None:
                     parts.extend(hm.tokens[r[0]:r[1]])
+                    aligned += sum(1 for hi in range(r[0], r[1]) if hi in h2p)
+            # A text block placed by a few of its words is not located: the shared words of a
+            # fund's Key Facts or returns box ("Total Net Assets", "Since Inception") align to
+            # the neighbouring box and take the block there. Below half aligned, the block goes
+            # to the fallbacks instead, which match the whole of it.
+            if len(parts) >= _TOKEN_BLOCK_WORDS and (aligned < _TOKEN_BLOCK_COVER * len(parts)
+                                                    or not _block_found(parts, pms, mcidCache)):
+                pms = []
+            pmsByFV[id(fv)] = pms
             valueTextByFV[id(fv)] = " ".join(parts)
             rowHit = next((rowPlacement[i] for i in ids if i in rowPlacement), None)
             anchorPage = rowHit[0] if rowHit else (pms[0][0] if pms else None)
@@ -1511,15 +1522,17 @@ def _covered(a: str, b: str) -> float:
 
 def _section_key(header: str) -> Optional[Tuple[str, str]]:
     """A distinctive, PDF-findable key for a section header: ``("ticker", t)`` for a
-    ticker (an all-caps 3-6 char token, e.g. PEMGX), found in one pdf row's label;
-    else ``("header", letters)``, the whole header's letters, found across a few
+    mutual fund ticker (five capitals ending in X, e.g. PEMGX), found in one pdf row's
+    label; else ``("header", letters)``, the whole header's letters, found across a few
     consecutive rows (the fund name and its share class are often separate lines).
 
-    Not a single word: without tickers the longest word is "portfolio" for most of a
-    fund family's headers, which a table of contents listing every fund matches row
-    after row, so every section would start there."""
+    Not any short all-caps word: "ESG" and "PSF" begin fund names, and as keys they
+    match the first row anywhere that mentions them. Not a single word either: without
+    tickers the longest word is "portfolio" for most of a fund family's headers, which a
+    table of contents listing every fund matches row after row, so every section would
+    start there."""
     toks = re.findall(r"[A-Za-z0-9]+", header or "")
-    tickers = [t for t in toks if 3 <= len(t) <= 6 and t.isupper() and any(c.isalpha() for c in t)]
+    tickers = [t for t in toks if re.fullmatch(r"[A-Z]{4}X", t)]
     if tickers:
         return ("ticker", tickers[0].lower())
     letters = _letters(_norm(header))
@@ -1826,7 +1839,34 @@ def _phrase_locate(factText, wordIdx, mcidWords, expectedPage=None, pageRange=No
         anchorPage = min(best, key=lambda k: abs(k[0] - expectedPage))[0]
     else:
         anchorPage = min(best, key=lambda k: k[0])[0]
-    return [(anchorPage, mc) for mc in sorted(mc for rl, (pg, mc) in scored if pg == anchorPage)]
+    hit = [(anchorPage, mc) for mc in sorted(mc for rl, (pg, mc) in scored if pg == anchorPage)]
+    # A block is located only where most of it is: a run of five common words ("fund 1 year
+    # since inception") is in every share class's returns box, and the box beside it.
+    if len(fw) >= _TOKEN_BLOCK_WORDS and not _block_found(fw, hit, None, mcidWords):
+        return []
+    return hit
+
+
+def _block_found(words, pms, mcidCache, mcidWords=None) -> bool:
+    """Whether at least _TOKEN_BLOCK_COVER of a block's words are among the words of the
+    marked-content sequences ``pms`` it would be located by, and as much of its numbers
+    when it has two or more. Words are compared as _phrase_toks, so the html token
+    stream's punctuation tokens do not count.
+
+    The numbers are checked apart because they are what tells one fund's box from the
+    next: every fund's Fund Statistics box reads "Net Assets (amount in thousands) ...
+    Total Advisory Fees Paid ...", so on the words alone another fund's box qualifies."""
+    want = collections.Counter(_phrase_toks(" ".join(words)))
+    if mcidWords is not None:
+        got = collections.Counter(w for key in pms for w in mcidWords.get(key, ()))
+    else:
+        got = collections.Counter(_phrase_toks(" ".join((mcidCache or {}).get(key, "") for key in pms)))
+    if sum((want & got).values()) < _TOKEN_BLOCK_COVER * sum(want.values()):
+        return False
+    nums = collections.Counter({w: n for w, n in want.items() if any(ch.isdigit() for ch in w)})
+    if sum(nums.values()) >= 2:
+        return sum((nums & got).values()) >= _TOKEN_BLOCK_COVER * sum(nums.values())
+    return True
 
 
 def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
@@ -1893,7 +1933,17 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                     stats["bbox"] += 1
                 stats["row"] += 1
                 continue
-            # 2) token-alignment hybrid (fallback for non-table / unmatched-row facts)
+            # 2) chart image region, for a chart's data points and for the block that wraps a
+            #    chart: what it prints is the image, and the words of its heading
+            #    ("Sector Allocation (% of Total Net Assets)") are in the box beside it too.
+            loc = next((imgLocByFactId[i] for i in ids if i in imgLocByFactId), None)
+            if loc is not None:
+                pg, bbox, h = loc
+                fv["reportSource"] = iSrc
+                fv[_locatorKey(fv)] = _image_source(pg, bbox, h)
+                stats["image"] += 1
+                continue
+            # 3) token-alignment hybrid (fallback for non-table / unmatched-row facts)
             pms = pmsByFV.get(id(fv)) or []
             if pms:
                 stats["token"] += 1
@@ -1916,7 +1966,7 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                     fv[_locatorKey(fv)] = _content_sources(pms)
                     stats["content"] += 1
                 continue
-            # 3) phrase-locate (text blocks / addresses the token aligner skipped)
+            # 4) phrase-locate (text blocks / addresses the token aligner skipped)
             phit = phraseByFV.get(id(fv))
             if phit:
                 fv["reportSource"] = cSrc
@@ -1924,21 +1974,13 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                 stats["phrase"] += 1
                 stats["content"] += 1
                 continue
-            # 3b) glyph span (printed but unmarked text), one box per page it covers
+            # 5) glyph span (printed but unmarked text), one box per page it covers
             shit = spanByFV.get(id(fv))
             if shit:
                 fv["reportSource"] = iSrc
                 fv[_locatorKey(fv)] = [src for pg, bbox in shit for src in _bbox_source(pg, bbox)]
                 stats["span"] += 1
                 stats["bbox"] += 1
-                continue
-            # 4) chart image region
-            loc = next((imgLocByFactId[i] for i in ids if i in imgLocByFactId), None)
-            if loc is not None:
-                pg, bbox, h = loc
-                fv["reportSource"] = iSrc
-                fv[_locatorKey(fv)] = _image_source(pg, bbox, h)
-                stats["image"] += 1
                 continue
             # not located in the PDF: fall back to the retained html source
             # (its original htmlElementId valueSources stay unchanged).
