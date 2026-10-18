@@ -12,9 +12,10 @@ The rule, for a ``gridLayout`` data table:
 
 * A cell's dimensions are the union of its x axis item's, its y axis item's, the selected z
   axis item's, and those of any ``tablePoints`` entry at its grid coordinates.
-* An x or y ``axisGroup`` with no ``axisNetwork`` is a key column (or row) of an open table:
-  each row holds, in that column, a member of the group's dimension, taken from the facts.
-  The table's rows are the distinct combinations of key values among the facts.
+* On an open table (no y axis items), each x ``axisGroup`` is a key column: each row holds, in
+  that column, a member of the group's dimension, taken from the facts, and a group with an
+  ``axisNetwork`` accepts only that network's members.  The table's rows are the distinct
+  combinations of key values among the facts.
 * A z ``axisGroup`` is a dimension the reader selects a member of (from its ``axisNetwork``,
   or with none, from the facts), so every fact is in the table for its own member.
 * A fact is in a cell when it has every one of the cell's dimensions with the same value, its
@@ -43,10 +44,16 @@ def axisItems(axis):
     return ((axis or {}).get("gridAxis") or {}).get("axisItems") or []
 
 
-def keyDimensions(axis):
-    """Dimensions of the axis groups without a network: an open table's key columns."""
-    return [g["dimensionName"] for g in ((axis or {}).get("gridAxis") or {}).get("axisGroups") or []
-            if g.get("dimensionName") and not g.get("axisNetwork")]
+def keyGroups(table):
+    """An open table's key columns: on a table with no y axis items, each x axis group."""
+    if axisItems(table.get("yAxis")):
+        return []
+    return [g for g in ((table.get("xAxis") or {}).get("gridAxis") or {}).get("axisGroups") or []
+            if g.get("dimensionName")]
+
+
+def keyDimensions(table):
+    return [g["dimensionName"] for g in keyGroups(table)]
 
 
 def tableCells(table):
@@ -77,9 +84,18 @@ def tableCells(table):
                 yield z.get("axisId"), x.get("axisId"), y.get("axisId"), dims
 
 
-def fitTable(table, facts):
+def networkMembers(model, name):
+    for net in list((model or {}).get("domainNetworks", ())) + list((model or {}).get("networks", ())):
+        if net.get("name") == name:
+            return {r.get("target") for r in net.get("relationships", ())}
+    return set()
+
+
+def fitTable(table, facts, model=None):
     cells = list(tableCells(table))
-    keyDims = keyDimensions(table.get("xAxis")) + keyDimensions(table.get("yAxis"))
+    keyDims = keyDimensions(table)
+    # a key column with a network accepts only that network's members
+    keyAllowed = {g["dimensionName"]: networkMembers(model, g["axisNetwork"]) for g in keyGroups(table) if g.get("axisNetwork")}
     zGroupDims = [g["dimensionName"] for g in ((table.get("zAxis") or {}).get("gridAxis") or {}).get("axisGroups") or ()]
     tableConcepts = {c[3].get("xbrl:concept") for c in cells} - {None}
     cellValues = defaultdict(set)
@@ -91,8 +107,10 @@ def fitTable(table, facts):
     candidates = [f for f in facts if f["factDimensions"].get("xbrl:concept") in tableConcepts]
     for fact in candidates:
         fd = fact["factDimensions"]
+        keyAccepted = all(fd[d] in allowed for d, allowed in keyAllowed.items() if d in fd)
         hits = [c for c in cells
-                if all(fd.get(d) == v for d, v in c[3].items())
+                if keyAccepted
+                and all(fd.get(d) == v for d, v in c[3].items())
                 and all(d in c[3] or d in CORE_DIMENSIONS or d in keyDims or d in zGroupDims for d in fd)]
         if hits:
             placed[fact["name"]] = hits[0][:3]
@@ -122,7 +140,7 @@ def main(argv):
         for table in layout.get("dataTables") or ():
             if table.get("tableType") != "gridLayout" or (only and table["name"] not in only):
                 continue
-            r = fitTable(table, facts)
+            r = fitTable(table, facts, model)
             rows = f", {r['openRows']} open-table rows" if r["openRows"] is not None else ""
             print(f"{table['name']}: {r['placed']} of {r['facts']} facts in {r['cells']} cells{rows}"
                   + (f", {r['multiCell']} in more than one cell" if r["multiCell"] else ""))
