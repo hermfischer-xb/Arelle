@@ -27,7 +27,7 @@ The output is fed to ``loadXbrlModule(cntlr, error, warning, None, moduleDict, u
 from __future__ import annotations
 
 import io, os
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from typing import TYPE_CHECKING, Optional
 
 from arelle import XbrlConst
@@ -176,6 +176,23 @@ def _typedDataType(axis, pfx: _NsPrefixer, emit) -> str:
     return "xs:string"
 
 
+def _otherRoleLabels(modelXbrl, concept, labelRels, lang):
+    """(role, text) of each non-standard label role of concept, one per role: the label in lang
+    (or a language it is a variant of, en-US for en), else in English, else the first."""
+    byRole = {}
+    for rel in labelRels.fromModelObject(concept):
+        label = rel.toModelObject
+        role = getattr(label, "role", None)
+        if label is None or not role or role == XbrlConst.standardLabel:
+            continue
+        labelLang = (getattr(label, "xmlLang", None) or "").lower()
+        rank = (0 if lang and (labelLang == lang.lower() or labelLang.startswith(lang.lower().partition("-")[0]))
+                else 1 if labelLang.startswith("en") else 2)
+        if role not in byRole or rank < byRole[role][0]:
+            byRole[role] = (rank, label.textValue)
+    return [(role, text) for role, (rank, text) in byRole.items() if text]
+
+
 def _classify(concept) -> str:
     """'dimension' | 'member' | 'hypercube' | 'concept' from schema-level nature."""
     if getattr(concept, "isDimensionItem", False):
@@ -233,21 +250,22 @@ class _Emit:
         return set(self.concepts) | set(self.dimensions) | set(self.members) | set(self.domainClasses)
 
 
-_builtInRelTypeCache = None
+_builtInTypeCache = {}
 
 
-def _builtInRelationshipTypesByUri():
-    """{arcrole URI: relationshipType QName string} for every type the built-in models declare.
+def _builtInTypesByUri(collection):
+    """{URI: type QName string} for every object of collection ("relationshipTypes" or
+    "labelTypes") the built-in models declare.
 
-    Read from the shipped resources rather than restated here, so a relationshipType added to a
-    spec taxonomy is picked up without touching this module. core.json already declares the LRR
+    Read from the shipped resources rather than restated here, so a type added to a spec
+    taxonomy is picked up without touching this module. core.json already declares the LRR
     deprecation arcroles as xbrl:dep-*, which is why a translated taxonomy using them refers to
-    the canonical objects instead of minting its own.
+    the canonical objects instead of minting its own; it declares a labelType for each XBRL 2.1
+    and LRR label role, which is how a legacy label role finds its labelType.
     """
-    global _builtInRelTypeCache
-    if _builtInRelTypeCache is None:
+    if collection not in _builtInTypeCache:
         import json as _json
-        _builtInRelTypeCache = {}
+        byUri = _builtInTypeCache[collection] = {}
         resourcesDir = os.path.join(os.path.dirname(__file__), "resources")
         for name, resource in builtInPrefixTaxonomies.items():
             if not resource.endswith(".json"):
@@ -257,11 +275,21 @@ def _builtInRelationshipTypesByUri():
                     doc = _json.load(fh)
             except (IOError, OSError, ValueError):
                 continue
-            for relType in (doc.get("xbrlModel") or {}).get("relationshipTypes") or ():
-                uri, typeName = relType.get("uri"), relType.get("name")
+            for typeObj in (doc.get("xbrlModel") or {}).get(collection) or ():
+                uri, typeName = typeObj.get("uri"), typeObj.get("name")
                 if uri and typeName:
-                    _builtInRelTypeCache.setdefault(uri, typeName)
-    return _builtInRelTypeCache
+                    byUri.setdefault(uri, typeName)
+    return _builtInTypeCache[collection]
+
+
+def _builtInRelationshipTypesByUri():
+    """{arcrole URI: relationshipType QName string} for every type the built-in models declare."""
+    return _builtInTypesByUri("relationshipTypes")
+
+
+def _builtInLabelTypesByUri():
+    """{label role URI: labelType QName string} for every label type the built-in models declare."""
+    return _builtInTypesByUri("labelTypes")
 
 
 #: Arcroles the translation handles elsewhere (presentation, calculation, and the XDT arcroles
@@ -392,6 +420,10 @@ def legacyTaxonomyToOimModule(modelXbrl, moduleName: Optional[str] = None,
     # ---- 1. concepts / dimensions / members from the SCHEMA ----
     # A dimension's domainClass is deferred: it is set to the actual domain root discovered
     # in the definition/presentation linkbase (below), with a synthetic fallback afterward.
+    labelTypeByRole = _builtInLabelTypesByUri()
+    labelRels = modelXbrl.relationshipSet(XbrlConst.conceptLabel)
+    lang = modelXbrl.modelManager.defaultLang
+    labelTypesOf = defaultdict(set)         # object name -> labelTypes of its emitted labels
     for qn, concept in modelXbrl.qnameConcepts.items():
         if qn is None or not getattr(concept, "isItem", False):
             continue
@@ -415,6 +447,17 @@ def legacyTaxonomyToOimModule(modelXbrl, moduleName: Optional[str] = None,
         if lbl:
             labels.append({"forObject": name, "language": "en",
                            "value": lbl, "labelType": "xbrl:label"})
+            labelTypesOf[name].add("xbrl:label")
+        # The concept's other labels (terse, total, negated, period start/end ...), each as the
+        # labelType core.json declares for its role, so that a presentation relationship's
+        # preferredLabel names a label the concept has. One per role, in the language the
+        # standard label is taken in; a role no built-in labelType declares is not carried.
+        for role, text in _otherRoleLabels(modelXbrl, concept, labelRels, lang):
+            labelType = labelTypeByRole.get(role)
+            if labelType and labelType not in labelTypesOf[name]:
+                labels.append({"forObject": name, "language": "en",
+                               "value": text, "labelType": labelType})
+                labelTypesOf[name].add(labelType)
 
     # ---- 2. one group + cube + network per linkrole ----
     # A linkrole is inferred from its DEFINITION (xbrldt) arcs when it declares a
@@ -486,7 +529,12 @@ def legacyTaxonomyToOimModule(modelXbrl, moduleName: Optional[str] = None,
                 # XbrlRelationship.order is Decimal (spec), so take the 2.1 arc's orderDecimal
                 # (default 1.0) rather than .order, which is a float. It serializes as a JSON
                 # number -- a whole order as an int (1, not "1.0") -- via saveableValue.
-                frels.append({"source": s, "target": t, "order": r.orderDecimal})
+                rel = {"source": s, "target": t, "order": r.orderDecimal}
+                # the arc's preferredLabel role, when the target has a label of its labelType
+                preferred = labelTypeByRole.get(r.preferredLabel) if r.preferredLabel else None
+                if preferred and preferred in labelTypesOf[t]:
+                    rel["properties"] = [{"property": "xbrl:preferredLabel", "value": preferred}]
+                frels.append(rel)
                 srcs.add(s); tgts.add(t)
         if frels:
             netName = grpName + "_PreNet"
