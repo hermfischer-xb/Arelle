@@ -153,15 +153,22 @@ def sourceDocumentUrls(compMdl):
     return urls
 
 
+# Built-in fact maps that read a report's facts from a data file (an XBRL 2.1 instance, an
+# xBRL-JSON or xBRL-CSV report) rather than from a document a viewer renders.
+DATA_FACT_MAPS = frozenset(("xbrl:xBRL-XML", "xbrl:xBRL-JSON", "xbrl:xBRL-CSV"))
+
+
 def dataSourceNames(compMdl):
-    """Names of the fact sources whose fact map has a template (a tableTemplate reading CSV, or a
-    JSON or XML template map): their sources are data the model reads its facts from, not
-    documents a viewer renders, so they are neither staged nor opened."""
+    """Names of the fact sources that are data the model reads its facts from, not documents a
+    viewer renders: those whose fact map has a template (a tableTemplate reading CSV, or a JSON
+    or XML template map), and those read by a built-in data fact map (DATA_FACT_MAPS). They are
+    staged as data and not opened."""
     names = set()
     for module in compMdl.xbrlModels.values():
         for factSource in getattr(module, "factSources", None) or ():
-            factMap = compMdl.namedObjects.get(getattr(factSource, "factMapName", None))
-            if getattr(factMap, "templateName", None) is not None:
+            factMapName = getattr(factSource, "factMapName", None)
+            factMap = compMdl.namedObjects.get(factMapName)
+            if getattr(factMap, "templateName", None) is not None or str(factMapName) in DATA_FACT_MAPS:
                 names.add(str(factSource.name))
     return names
 
@@ -206,15 +213,25 @@ def hasGridLayoutFacts(compMdl):
                for dataTable in layout.dataTables or ())
 
 
+def hasReportGroupFacts(compMdl):
+    """Whether the model has facts and groups with contents (networks, cubes) to show them in:
+    a report with no document of its own, such as an XBRL (not inline) filing, is shown by the
+    viewer as report pages, one per group."""
+    if not any(getattr(module, "facts", None) for module in compMdl.xbrlModels.values()):
+        return False
+    return any(getattr(module, "groupContents", None) for module in compMdl.xbrlModels.values())
+
+
 def hasViewableSource(compMdl):
     """Whether this model has something for the viewer to render facts against.
 
     Either a document -- a sourceMapping naming one, and at least one fact value located in it --
-    or grid layout tables for its facts (see hasGridLayoutFacts). A model with neither is a
+    or grid layout tables or report groups for its facts (see hasGridLayoutFacts and
+    hasReportGroupFacts). A model with none of these is a
     taxonomy, not a report, and opening a viewer on it would show an empty document with no way
     to tell why.
     """
-    if hasGridLayoutFacts(compMdl) and not sourceDocumentUrls(compMdl):
+    if (hasGridLayoutFacts(compMdl) or hasReportGroupFacts(compMdl)) and not sourceDocumentUrls(compMdl):
         return True
     if not sourceDocumentUrls(compMdl):
         return False
@@ -363,9 +380,9 @@ def stageForViewer(cntlr, compMdl, folder, saveMode="full"):
     # The data the facts are read from is staged too, so that the staged model does not name
     # files outside the stage.
     stagedData = stageDataSources(cntlr, compMdl, folder)
-    if not stagedNames and not documentUrls and hasGridLayoutFacts(compMdl):
-        # No document: the viewer draws the model's grid layout tables, so the model (and its
-        # data) is all that is staged.
+    if not stagedNames and not documentUrls and (hasGridLayoutFacts(compMdl) or hasReportGroupFacts(compMdl)):
+        # No document: the viewer draws the model's grid layout tables, or its groups as report
+        # pages, so the model (and its data) is all that is staged.
         modelName = os.path.splitext(os.path.basename(getattr(compMdl, "uri", None) or "model"))[0] + MODEL_SUFFIX
         saveFiles(cntlr, compMdl, os.path.join(folder, modelName), saveMode=saveMode,
                   sourceUrlRewrite=lambda sourceName, url: stagedData.get(sourceName))
