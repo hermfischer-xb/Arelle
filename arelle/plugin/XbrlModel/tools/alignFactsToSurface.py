@@ -90,6 +90,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import collections
 import hashlib
 import json
 import os
@@ -281,6 +282,9 @@ def _build_html_model(htmlPath: str, factIds: Set[str], mediaType: str) -> HtmlM
         for c in el:
             collect_ids(c, out)
 
+    openFacts: List[str] = []                   # fact ids enclosing the element being walked
+    wrapperChart: Dict[str, Any] = {}           # enclosing fact id -> a chart it wraps
+
     def walk(el):
         tag = el.tag
         # clip-hidden subtree: not in the PDF text. Record its facts + chart img
@@ -295,6 +299,8 @@ def _build_html_model(htmlPath: str, factIds: Set[str], mediaType: str) -> HtmlM
                     chartTokenPos.setdefault(id(img), len(tokens))  # doc position
                     for i in ids:
                         chartByFactId[i] = img
+                    for i in openFacts:
+                        wrapperChart.setdefault(i, img)
             tokens.extend(_toks(el.tail))
             return
         if _skip_tag(tag):
@@ -303,18 +309,32 @@ def _build_html_model(htmlPath: str, factIds: Set[str], mediaType: str) -> HtmlM
         _id = el.get("id")
         if _id in factIds:
             idRange.setdefault(_id, [len(tokens), None])
+            openFacts.append(_id)
         tokens.extend(_toks(el.text))
         for c in el:
             walk(c)
-        if _id in factIds and idRange.get(_id)[1] is None:
-            idRange[_id][1] = len(tokens)
+        if _id in factIds:
+            openFacts.pop()
+            if idRange.get(_id)[1] is None:
+                idRange[_id][1] = len(tokens)
         tokens.extend(_toks(el.tail))
 
     # parent map for sibling-chart lookup
     global _PARENT
     _PARENT = {c: p for p in root.iter() for c in p}
     walk(root)
+    # A fact that wraps a chart and its hidden data table (an SEC LineGraphTableTextBlock) prints
+    # as the chart: what it shows in the PDF is the chart image, so that image region is where it
+    # falls back to, as its data points do. Only when it has little visible text of its own -- a
+    # text block that merely contains a chart among paragraphs is not the chart.
+    for i, img in wrapperChart.items():
+        r = idRange.get(i)
+        if i not in chartByFactId and r and r[1] is not None and r[1] - r[0] <= _CHART_WRAPPER_TOKENS:
+            chartByFactId[i] = img
     return HtmlModel(root, tokens, idRange, clipHiddenFactIds, chartByFactId, chartTokenPos)
+
+
+_CHART_WRAPPER_TOKENS = 30
 
 
 _PARENT: Dict[Any, Any] = {}
@@ -402,7 +422,16 @@ def _build_html_rows(root, factIds):
     sectionHeaders: List[str] = []
     section = -1
     lastWasHeader = False
+    # A clip-hidden subtree is not printed (the chart data tables of an SEC tailored shareholder
+    # report: tens of thousands of rows), so its rows are not alignment units. Left in, their values
+    # turn up by chance in printed rows and take them in the chain from the rows that are printed.
+    hidden: Set[int] = set()
     for el in root.iter():
+        if isinstance(el.tag, str) and _is_clip_hidden(el.get("style")):
+            hidden.update(id(d) for d in el.iter())
+    for el in root.iter():
+        if id(el) in hidden:
+            continue
         ln = _local(el.tag).lower()
         if ln == "h1":
             htext = " ".join(t.strip() for t in el.itertext() if t and t.strip())
@@ -921,8 +950,31 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
     print(f"[align] {len(h2p)}/{len(hm.tokens)} tokens "
           f"({100*len(h2p)//max(1,len(hm.tokens))}%)", flush=True)
 
+    # Sub-MCID glyph geometry (optional): lets a fact that is only a portion of a
+    # coarse row-grained MCID be located by a tight glyph bbox of its own value.
+    geom = None
+    try:
+        geom = _PdfGeometry(pdfPath)
+    except Exception as e:
+        print(f"[bbox] pypdfium2 geometry unavailable ({e}); portion facts keep pdfMcid", flush=True)
+
+    # Row-granular alignment (primary): match the trusted html table rows against
+    # the geometry-built PDF rows, monotone top-to-bottom, keyed on the row
+    # signature. Fills the wrong/unmapped cases the global token alignment can't
+    # disambiguate (repeated value, 2- vs 3-period). Facts not in a table row --
+    # or in rows that did not match -- fall back to the token-alignment hybrid.
+    rowPlacement: Dict[str, Tuple[int, Any, str]] = {}
+    if geom is not None:
+        htmlRows, _factRow, sectionHeaders = _build_html_rows(hm.root, set(allIds))
+        rowPlacement = _row_align(htmlRows, geom, len(geom._doc), sectionHeaders)
+        print(f"[rows] html rows={len(htmlRows)}  sections={len(sectionHeaders)}  "
+              f"facts placed by row signature={len(rowPlacement)}", flush=True)
+
     # per-fact content locators (also serve as page anchors for image
-    # multi-placement disambiguation), computed once and reused by the rewrite.
+    # multi-placement disambiguation and for the fallbacks' expected page), computed
+    # once and reused by the rewrite. A row placement is the better anchor where there
+    # is one: it is what the fact will get, and the token alignment is the stage that
+    # mis-places a value repeated in every fund's report.
     pmsByFV: Dict[int, List[Tuple[int, int]]] = {}
     valueTextByFV: Dict[int, str] = {}           # the fact's own displayed html text
     contentAnchors: List[Tuple[int, int]] = []   # (html token pos, pdf page)
@@ -939,10 +991,12 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
                 if r and r[1] is not None:
                     parts.extend(hm.tokens[r[0]:r[1]])
             valueTextByFV[id(fv)] = " ".join(parts)
-            if pms:
+            rowHit = next((rowPlacement[i] for i in ids if i in rowPlacement), None)
+            anchorPage = rowHit[0] if rowHit else (pms[0][0] if pms else None)
+            if anchorPage is not None:
                 r = hm.idRange.get(ids[0])
                 if r and r[1] is not None:
-                    contentAnchors.append((r[0], pms[0][0]))
+                    contentAnchors.append((r[0], anchorPage))
     contentAnchors.sort()
     _anchorPos = [a[0] for a in contentAnchors]
 
@@ -958,6 +1012,16 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
         if j > 0:
             cands.append(contentAnchors[j - 1])
         return min(cands, key=lambda a: abs(a[0] - tokenPos))[1] if cands else None
+
+    def _bracket_pages(tokenPos: int) -> Tuple[int, int]:
+        """Pages a fact at this document position can be on: from the page of the
+        located fact before it to the page of the one after it, a page of slack either
+        side (the document is read in order on both surfaces)."""
+        j = bisect.bisect_left(_anchorPos, tokenPos)
+        before = [a[1] for a in contentAnchors[max(0, j - 1):j]]
+        k = bisect.bisect_right(_anchorPos, tokenPos)
+        after = [a[1] for a in contentAnchors[k:k + 1]]
+        return ((before[0] - 1) if before else 1, (after[0] + 1) if after else 1 << 30)
 
     # image placements only if there are clip-hidden facts with charts
     imgLocByFactId: Dict[str, Tuple[int, List[float], str]] = {}
@@ -1022,27 +1086,6 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
         print(f"[image] charts matched: exact={exactCharts} (multi-placement disambiguated={multi}) "
               f"+dHash={phashRecovered}; chart facts located: {len(imgLocByFactId)}", flush=True)
 
-    # ---- rewrite -----------------------------------------------------------
-    # Sub-MCID glyph geometry (optional): lets a fact that is only a portion of a
-    # coarse row-grained MCID be located by a tight glyph bbox of its own value.
-    geom = None
-    try:
-        geom = _PdfGeometry(pdfPath)
-    except Exception as e:
-        print(f"[bbox] pypdfium2 geometry unavailable ({e}); portion facts keep pdfMcid", flush=True)
-
-    # Row-granular alignment (primary): match the trusted html table rows against
-    # the geometry-built PDF rows, monotone top-to-bottom, keyed on the row
-    # signature. Fills the wrong/unmapped cases the global token alignment can't
-    # disambiguate (repeated value, 2- vs 3-period). Facts not in a table row --
-    # or in rows that did not match -- fall back to the token-alignment hybrid.
-    rowPlacement: Dict[str, Tuple[int, Any, str]] = {}
-    if geom is not None:
-        htmlRows, _factRow, sectionHeaders = _build_html_rows(hm.root, set(allIds))
-        rowPlacement = _row_align(htmlRows, geom, len(geom._doc), sectionHeaders)
-        print(f"[rows] html rows={len(htmlRows)}  sections={len(sectionHeaders)}  "
-              f"facts placed by row signature={len(rowPlacement)}", flush=True)
-
     # Phrase-locate fallback for facts still unmapped by row + token alignment
     # (prose text blocks, addresses): match the fact's distinctive text as a
     # phrase against the MCID cache. Expected page (nearest located neighbour)
@@ -1063,7 +1106,8 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
             text = valueTextByFV.get(id(fv), "")
             if len(_phrase_toks(text)) >= 3:
                 eligible += 1
-            hit = _phrase_locate(text, wordIdx, mcidWords, expected)
+            hit = _phrase_locate(text, wordIdx, mcidWords, expected,
+                                 _bracket_pages(r[0]) if (r and r[1] is not None) else None)
             if hit:
                 phraseByFV[id(fv)] = hit
         # Report the eligible denominator alongside the hit count: a numeric value
@@ -1072,10 +1116,30 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
         print(f"[phrase] unmapped after row+token={len(unmappedFVs)}  "
               f"eligible (>=3 words)={eligible}  located by phrase={len(phraseByFV)}", flush=True)
 
+    # Glyph-span fallback for text still unmapped: text the PDF prints but does not
+    # mark (no marked content to match a phrase against -- an N-CSR's Key Facts box is
+    # untagged on most pages), located in the page's glyph text near its expected page.
+    spanByFV: Dict[int, List[Tuple[int, Any]]] = {}
+    if geom is not None:
+        for fv in unmappedFVs:
+            if id(fv) in phraseByFV or any(i in hm.chartByFactId for i in perFV[id(fv)]):
+                continue                        # a chart's wrapper is located on its chart
+            text = valueTextByFV.get(id(fv), "")
+            if len(_phrase_toks(text)) < 3:
+                continue
+            r = hm.idRange.get(perFV[id(fv)][0])
+            expected = _nearest_page(r[0]) if (r and r[1] is not None) else None
+            if expected is None:
+                continue
+            hit = geom.span(text, expected, len(geom._doc), _bracket_pages(r[0]))
+            if hit:
+                spanByFV[id(fv)] = hit
+        print(f"[span] located by glyph span={len(spanByFV)}", flush=True)
+
     stats = _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId,
                      os.path.basename(pdfPath),
                      valueTextByFV=valueTextByFV, mcidCache=mcidCache, geom=geom,
-                     rowPlacement=rowPlacement, phraseByFV=phraseByFV)
+                     rowPlacement=rowPlacement, phraseByFV=phraseByFV, spanByFV=spanByFV)
     total = stats["total"]
     located = total - stats["unmapped"]
     pct = (100 * located // total) if total else 0
@@ -1083,7 +1147,7 @@ def align(htmlPath: str, factsPath: str, pdfPath: str,
           f"\n    total facts ................. {total}"
           f"\n    located in PDF .............. {located}  ({pct}%)"
           f"\n      by method:  row-granular={stats['row']}  token={stats['token']}"
-          f"  phrase={stats['phrase']}  image={stats['image']}"
+          f"  phrase={stats['phrase']}  span={stats['span']}  image={stats['image']}"
           f"\n      by locator: pdfMcid={stats['content']}  pdfBBox={stats['bbox']}"
           f"  pdfImage={stats['image']}"
           f"\n    unlocated in PDF ........... {stats['unmapped']}  (kept html-element-id"
@@ -1251,25 +1315,32 @@ class _PdfGeometry:
             return self._pages[key]
         try:
             text, boxes = self._raw(page)
+            textPage = self._doc[page - 1].get_textpage()
         except Exception:
             self._pages[key] = []
             return []
+        # Rows are banded on the LOOSE char box (the font's ascent to descent), which is the same for
+        # every glyph on a line, not on the tight glyph box, whose middle moves with the glyph's shape.
+        # A comma's tight box hangs below the baseline, so where the line is small its middle falls
+        # outside the band: every comma on the line then forms a row of its own, and "$136,570" is
+        # left as "136570", which no html value matches. The tight box is still what places a cell.
         chars = []
         for i in range(len(boxes)):
             ch = text[i]
             if ch.isspace():
                 continue
             l, b, r, t = boxes[i]
-            chars.append((l, b, r, t, ch))
+            _l, lb, _r, lt = textPage.get_charbox(i, loose=True)
+            chars.append((l, b, r, t, ch, (lb + lt) / 2))
         if not chars:
             self._pages[key] = []
             return []
-        heights = sorted(t - b for l, b, r, t, _c in chars if t > b)
+        heights = sorted(c[3] - c[1] for c in chars if c[3] > c[1])
         medH = heights[len(heights) // 2] if heights else 8.0
-        chars.sort(key=lambda c: (-(c[1] + c[3]) / 2, c[0]))  # top-to-bottom, then left
+        chars.sort(key=lambda c: (-c[5], c[0]))  # top-to-bottom, then left
         bands, cur, curY = [], [], None
         for c in chars:
-            cy = (c[1] + c[3]) / 2
+            cy = c[5]
             if curY is None or abs(cy - curY) <= medH * 0.6:
                 cur.append(c)
                 curY = cy if curY is None else (curY * (len(cur) - 1) + cy) / len(cur)
@@ -1336,6 +1407,76 @@ class _PdfGeometry:
         ys = [r[1] for r in rects] + [r[3] for r in rects]
         return (round(min(xs), 2), round(min(ys), 2), round(max(xs), 2), round(max(ys), 2))
 
+    def span(self, text: str, expected: int, npages: int, pageRange=None):
+        """Where ``text`` is printed, by glyphs: ``[(page, bbox)]`` on the page nearest
+        ``expected`` (within _SPAN_PAGE_WINDOW, and inside ``pageRange`` (lo, hi) when given)
+        whose text covers it best, continued on the next page when the text runs over a
+        page break; or None below _SPAN_MIN_COVER.
+
+        Matched as character K-grams that occur once on the page, chained in order on
+        both sides (_lis), so a block whose lines the PDF interleaves with other text, or
+        that differs in a few characters, still matches on the bulk of it. The box is the
+        union of the matched glyphs only."""
+        b = _norm(text)[:_SPAN_MAX_CHARS]
+        if len(b) < 2 * _SPAN_K:
+            return None
+
+        def chain(page):
+            norm, n2o, boxes = self._page(page)
+            grams: Dict[str, int] = {}
+            for i in range(len(norm) - _SPAN_K + 1):
+                g = norm[i:i + _SPAN_K]
+                grams[g] = -1 if g in grams else i
+            pairs = [(i, grams[b[i:i + _SPAN_K]]) for i in range(len(b) - _SPAN_K + 1)
+                     if grams.get(b[i:i + _SPAN_K], -1) >= 0]
+            ch = _lis(pairs)
+            covered = set()
+            for i, _p in ch:
+                covered.update(range(i, i + _SPAN_K))
+            return ch, covered, (n2o, boxes)
+
+        def box(ch, geo):
+            n2o, boxes = geo
+            rects = [boxes[n2o[p + k]] for _i, p in ch for k in range(_SPAN_K) if p + k < len(n2o)]
+            xs = [r[0] for r in rects] + [r[2] for r in rects]
+            ys = [r[1] for r in rects] + [r[3] for r in rects]
+            return (round(min(xs), 2), round(min(ys), 2), round(max(xs), 2), round(max(ys), 2))
+
+        best = None
+        lo, hi = pageRange or (1, npages)
+        for page in sorted(range(max(1, lo, expected - _SPAN_PAGE_WINDOW),
+                                 min(npages, hi, expected + _SPAN_PAGE_WINDOW) + 1),
+                           key=lambda q: (abs(q - expected), q)):
+            try:
+                ch, cov, geo = chain(page)
+            except Exception:
+                continue
+            if ch and (best is None or len(cov) > len(best[2])):
+                best = (page, ch, cov, geo)
+        if best is None:
+            return None
+        page, ch, cov, geo = best
+        out = [(page, box(ch, geo))]
+        if len(cov) < _SPAN_MIN_COVER * len(b) and page < npages:
+            # the rest may be on the next page: chain what the first page did not cover
+            last = max(cov)
+            try:
+                ch2, cov2, geo2 = chain(page + 1)
+            except Exception:
+                ch2, cov2 = [], set()
+            ch2 = [(i, p) for i, p in ch2 if i > last]
+            cov2 = {k for i, _p in ch2 for k in range(i, i + _SPAN_K)}
+            if ch2:
+                cov = cov | cov2
+                out.append((page + 1, box(ch2, geo2)))
+        return out if len(cov) >= _SPAN_MIN_COVER * len(b) else None
+
+
+_SPAN_K = 10                 # characters per gram: long enough to be unique on a page
+_SPAN_MAX_CHARS = 6000
+_SPAN_MIN_COVER = 0.6        # fraction of the text that must be matched
+_SPAN_PAGE_WINDOW = 2
+
 
 def _bbox_source(page: int, bbox) -> List[Dict[str, Any]]:
     # A content fact located by a glyph bbox (no image hash), rendered by the
@@ -1355,18 +1496,47 @@ def _bbox_source(page: int, bbox) -> List[Dict[str, Any]]:
 # presentations lands in its correct row. Returns factId -> (page, bbox,
 # valueNorm) for every fact placed in a matched row.
 # --------------------------------------------------------------------------
-def _section_key(header: str) -> Optional[str]:
-    """A distinctive, PDF-findable key for a section header -- prefer a ticker
-    (an all-caps 3-6 char token, e.g. PEMGX), else the longest word."""
+_NONLETTER = re.compile(r"[^a-z]")
+def _letters(s: str) -> str:
+    return _NONLETTER.sub("", s)
+
+
+def _covered(a: str, b: str) -> float:
+    """Fraction of ``a``'s characters that ``difflib`` matches, in order, inside ``b``."""
+    if not a:
+        return 0.0
+    blocks = SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+    return sum(m.size for m in blocks if m.size >= 4) / len(a)
+
+
+def _section_key(header: str) -> Optional[Tuple[str, str]]:
+    """A distinctive, PDF-findable key for a section header: ``("ticker", t)`` for a
+    ticker (an all-caps 3-6 char token, e.g. PEMGX), found in one pdf row's label;
+    else ``("header", letters)``, the whole header's letters, found across a few
+    consecutive rows (the fund name and its share class are often separate lines).
+
+    Not a single word: without tickers the longest word is "portfolio" for most of a
+    fund family's headers, which a table of contents listing every fund matches row
+    after row, so every section would start there."""
     toks = re.findall(r"[A-Za-z0-9]+", header or "")
     tickers = [t for t in toks if 3 <= len(t) <= 6 and t.isupper() and any(c.isalpha() for c in t)]
     if tickers:
-        return tickers[0].lower()
-    words = [t.lower() for t in toks if len(t) >= 4 and not t.isdigit()]
-    return max(words, key=len) if words else None
+        return ("ticker", tickers[0].lower())
+    letters = _letters(_norm(header))
+    return ("header", letters) if len(letters) >= 8 else None
+
+
+def _section_found(flat, ri: int, key: Tuple[str, str]) -> bool:
+    kind, k = key
+    if kind == "ticker":
+        return k in flat[ri]["label"]
+    window = "".join(flat[x]["label"] for x in range(ri, min(ri + 3, len(flat)))
+                     if flat[x]["page"] == flat[ri]["page"])
+    return k in _letters(window) and k[:6] in _letters(flat[ri]["label"])
 
 
 _SECTION_BONUS = 1.0
+_INDEX_PAGE_STARTS = 4
 def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
     import difflib
     for r in htmlRows:
@@ -1382,6 +1552,11 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
                     k = _valkey(text)          # magnitude key (sign-insensitive)
                     if k:
                         vals.append((k, bbox))
+                    # a label printed with no column gap before its value is in the same token
+                    # ("...Paid (amount in thousands) $22,184"); its words are still the label
+                    words = _letters(_norm(text))
+                    if len(words) >= 3:
+                        label.append(words)
                 else:
                     n = _norm(text)
                     if n:
@@ -1400,17 +1575,27 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
     # headers not aligned to table positions, so scoping there would mis-confine.
     secRange: Dict[int, Tuple[int, int]] = {}
     if sectionHeaders and len(sectionHeaders) >= 20:
-        starts: List[Tuple[int, int]] = []
-        pos = 0
-        for si, hdr in enumerate(sectionHeaders):
-            k = _section_key(hdr)
-            if not k:
-                continue
-            for ri in range(pos, len(flat)):
-                if k in flat[ri]["label"]:
-                    starts.append((si, ri))
-                    pos = ri + 1
-                    break
+        def find_starts(skipPages):
+            found: List[Tuple[int, int]] = []
+            pos = 0
+            for si, hdr in enumerate(sectionHeaders):
+                k = _section_key(hdr)
+                if not k:
+                    continue
+                for ri in range(pos, len(flat)):
+                    if flat[ri]["page"] not in skipPages and _section_found(flat, ri, k):
+                        found.append((si, ri))
+                        pos = ri + 1
+                        break
+            return found
+        starts = find_starts(set())
+        # A page on which many sections start is a table of contents listing them (an N-CSR
+        # lists every fund and share class over several pages before the first report), not
+        # where they start; search again without those pages.
+        perPage = collections.Counter(flat[ri]["page"] for _si, ri in starts)
+        indexPages = {pg for pg, n in perPage.items() if n >= _INDEX_PAGE_STARTS}
+        if indexPages:
+            starts = find_starts(indexPages)
         if len(starts) >= max(10, len(sectionHeaders) // 2):
             for idx, (si, ri) in enumerate(starts):
                 end = starts[idx + 1][1] if idx + 1 < len(starts) else len(flat)
@@ -1481,21 +1666,78 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
             hi, ri, _s = cands[k]
             assign[hi] = ri
             k = prev[k]
-    # place each html value cell onto its pdf token (ordered), in the matched row
+    # place each html value cell onto its pdf token (ordered), in the matched row. A pdf value token
+    # is placed at most once, which the out-of-order pass below relies on.
     placement: Dict[str, Tuple[int, Any, str]] = {}
-    for hi, ri in assign.items():
+    used: Set[Tuple[int, int]] = set()
+
+    def place(hi, ri):
         r = htmlRows[hi]
         pv = flat[ri]["vals"]
         j = 0
         for ci, cell in enumerate(r["cells"]):
             target = r["vnorm"][ci]
-            while j < len(pv) and pv[j][0] != target:
+            while j < len(pv) and (pv[j][0] != target or (ri, j) in used):
                 j += 1
             if j < len(pv):
                 _n, bbox = pv[j]
                 for fid in cell["factIds"]:
                     placement[fid] = (flat[ri]["page"], bbox, target)
+                used.add((ri, j))
                 j += 1
+
+    for hi, ri in sorted(assign.items()):
+        place(hi, ri)
+
+    # Out-of-order pass. The chain is monotone, and a page does not always read in html order: a
+    # Key Facts grid that fills column by column (Net Assets, Holdings | Turnover, Fees) prints as
+    # two lines (Net Assets + Turnover, Holdings + Fees), and a two-column fund page interleaves
+    # its holdings tables. The chain keeps one consistent order and drops the rest, so an html row
+    # it left out is given a pdf row that is OUT of chain order when the evidence is local and
+    # unambiguous: on a page between those of its nearest placed html neighbours, every value and
+    # the label matched, inside its own section where sections were found, one best row only, and
+    # its values not already taken by another row.
+    if assign:
+        placedHis = sorted(assign)
+        byHi: Dict[int, List[Tuple[float, int]]] = {}
+        for hi, ri, sc in cands:
+            byHi.setdefault(hi, []).append((sc, ri))
+        for hi in sorted(byHi):
+            if hi in assign:
+                continue
+            r = htmlRows[hi]
+            k = bisect.bisect_left(placedHis, hi)
+            pages = [flat[assign[placedHis[x]]]["page"] for x in (k - 1, k) if 0 <= x < len(placedHis)]
+            lo, hi_pg = min(pages), max(pages)
+            rng = secRange.get(r.get("section", 0))
+            good = []
+            for sc, ri in byHi[hi]:
+                pr = flat[ri]
+                if not (lo <= pr["page"] <= hi_pg) or (rng and not rng[0] <= ri < rng[1]):
+                    continue
+                free = [n for j, (n, _b) in enumerate(pr["vals"]) if (ri, j) not in used]
+                j = 0
+                for x in free:
+                    if j < len(r["vnorm"]) and x == r["vnorm"][j]:
+                        j += 1
+                if j < len(r["vnorm"]):
+                    continue                    # a value is missing or already taken
+                # labels compared on their letters: "%" or "$" beside a value is label text in the
+                # html (it sits outside the fact) but part of the value token in the pdf. A label
+                # that wraps ("Total Advisory Fees Paid (amount in / thousands)") is on the lines
+                # above and below the value, so those are searched too, on the same page.
+                ln = _letters(r["lnorm"])
+                near = "".join(_letters(flat[x]["label"]) for x in (ri - 1, ri, ri + 1)
+                               if 0 <= x < len(flat) and flat[x]["page"] == pr["page"])
+                if not ln or not (ln in near or _covered(ln, near) >= 0.9):
+                    continue
+                good.append((sc, ri))
+            if not good:
+                continue
+            good.sort(reverse=True)
+            if len(good) > 1 and good[1][0] == good[0][0]:
+                continue                        # two equally good rows: ambiguous
+            place(hi, good[0][1])
     return placement
 
 
@@ -1508,6 +1750,7 @@ def _row_align(htmlRows, geom, npages: int, sectionHeaders=None):
 # words) is distinctive where its individual words are not.
 # --------------------------------------------------------------------------
 _PW = re.compile(r"\w+", re.UNICODE)
+
 def _phrase_toks(s: str) -> List[str]:
     return _PW.findall((s or "").lower())
 
@@ -1543,11 +1786,12 @@ def _longest_run(a: List[str], b: List[str]) -> int:
     return best
 
 
-def _phrase_locate(factText, wordIdx, mcidWords, expectedPage=None):
+def _phrase_locate(factText, wordIdx, mcidWords, expectedPage=None, pageRange=None):
     """Locate a text fact by phrase: return the matched (page, mcid) list (in
     mcid order on the chosen page), or []. A contiguous word run of at least
-    ``thr`` words counts as a match; among equally good pages, the one nearest
-    the fact's expected (neighbour) page wins."""
+    ``thr`` words counts as a match, on a page inside ``pageRange`` (lo, hi) when
+    given; among equally good pages, the one nearest the fact's expected
+    (neighbour) page wins."""
     fw = _phrase_toks(factText)
     if len(fw) < 3:
         return []
@@ -1565,6 +1809,15 @@ def _phrase_locate(factText, wordIdx, mcidWords, expectedPage=None):
         rl = _longest_run(fw, mw)
         if rl >= thr:
             scored.append((rl, key))
+    if pageRange is not None:
+        # Only between the pages of the fact's located neighbours. A phrase shared by every
+        # fund's report ("Net Assets (amount in thousands) ... Total Advisory Fees Paid") is
+        # matched best wherever it happens to be one marked-content sequence, and without the
+        # bracket every fund's block went to the one or two pages where it is, seventy pages
+        # from its fund. Not a fixed distance from the nearest neighbour: a back-cover address
+        # is the last fact in the document, thirty-six pages after the last one located.
+        lo, hi = pageRange
+        scored = [(rl, k) for rl, k in scored if lo <= k[0] <= hi]
     if not scored:
         return []
     maxrl = max(rl for rl, _k in scored)
@@ -1578,9 +1831,10 @@ def _phrase_locate(factText, wordIdx, mcidWords, expectedPage=None):
 
 def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
              valueTextByFV=None, mcidCache=None, geom=None, rowPlacement=None,
-             phraseByFV=None):
+             phraseByFV=None, spanByFV=None):
     rowPlacement = rowPlacement or {}
     phraseByFV = phraseByFV or {}
+    spanByFV = spanByFV or {}
     di = factsDoc.setdefault("documentInfo", {})
     xm = factsDoc.setdefault("xbrlModel", {})
     # Preserve the original html source so facts not located in the PDF keep a
@@ -1605,7 +1859,8 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
         {"name": cMap, "factLocatorType": PDF_CONTENT_LOCATOR},
         {"name": iMap, "factLocatorType": PDF_IMAGE_LOCATOR},
     ]
-    stats = {"row": 0, "token": 0, "phrase": 0, "content": 0, "bbox": 0, "image": 0, "unmapped": 0, "total": 0}
+    stats = {"row": 0, "token": 0, "phrase": 0, "span": 0, "content": 0, "bbox": 0, "image": 0,
+             "unmapped": 0, "total": 0}
     # (page, magnitude key) -> [mcids]: lets a row-placed value that is exactly one
     # whole MCID keep the structural, reflow-robust pdfMcid rather than a bbox. Keyed
     # by _valkey so it matches the sign-insensitive row placement; a merged/coarse MCID
@@ -1668,6 +1923,14 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                 fv[_locatorKey(fv)] = _content_sources(phit)
                 stats["phrase"] += 1
                 stats["content"] += 1
+                continue
+            # 3b) glyph span (printed but unmarked text), one box per page it covers
+            shit = spanByFV.get(id(fv))
+            if shit:
+                fv["reportSource"] = iSrc
+                fv[_locatorKey(fv)] = [src for pg, bbox in shit for src in _bbox_source(pg, bbox)]
+                stats["span"] += 1
+                stats["bbox"] += 1
                 continue
             # 4) chart image region
             loc = next((imgLocByFactId[i] for i in ids if i in imgLocByFactId), None)
