@@ -200,6 +200,10 @@ def moduleLoaders(module: "XbrlModule",
             # covered by InlineFactsLoader.
             if factMapQn in builtins:
                 continue
+            # a template-backed source already materialized onto module.facts (see
+            # materializeFactSourceFacts) is covered by InlineFactsLoader too
+            if id(factSource) in (getattr(compMdl, "_materializedTemplateSources", None) or ()):
+                continue
             # A locator-type fact map (factLocatorType, no templateName) only
             # binds a source document for factValue valueSource resolution -- it
             # generates no facts, so there is no loader to run for it. Only
@@ -474,8 +478,8 @@ def materializeFactSourceFacts(compMdl: "XbrlCompiledModel", module: "XbrlModule
 
     Called from validateXbrlModule before the module's facts are resolved (and, for a
     legacy report opened as an entry point, once at load time -- see
-    ``pocLoadReportAsEntry``). Custom (template-backed) fact maps are handled by the
-    streaming loader registry and are not materialized here.
+    ``pocLoadReportAsEntry``). Template-backed fact maps (a tableTemplate reading CSV) are
+    materialized after the built-in ones, through their loader from the streaming registry.
     """
     # Idempotency: a report opened as an entry point materializes at load time; the
     # normal validate-time call must then be a no-op (else facts would be doubled).
@@ -537,6 +541,22 @@ def materializeFactSourceFacts(compMdl: "XbrlCompiledModel", module: "XbrlModule
             _registerGeneratedObject(compMdl, module, fact, "facts")
         for footnote in footnotes:
             _registerGeneratedObject(compMdl, module, footnote, "footnotes")
+    # A report whose facts come from template-backed fact maps (a tableTemplate reading CSV) is
+    # materialized the same way: its facts are the report's, so they have to be validated against
+    # the cubes, saved with the model and shown by a viewer, all of which read module.facts. A
+    # source materialized here is no longer streamed by moduleLoaders, so no fact is seen twice.
+    materialized = getattr(compMdl, "_materializedTemplateSources", None)
+    if materialized is None:
+        materialized = compMdl._materializedTemplateSources = set()
+    for factSource in getattr(module, "factSources", None) or ():
+        if getattr(factSource, "factMapName", None) in parsers:
+            continue
+        loader = resolveFactSourceLoader(factSource, module, compMdl)
+        if loader is None:
+            continue
+        materialized.add(id(factSource))
+        for fact in loader.facts():
+            _registerGeneratedObject(compMdl, module, fact, "facts")
 
 
 def _registerGeneratedObject(compMdl: "XbrlCompiledModel", module: "XbrlModule",

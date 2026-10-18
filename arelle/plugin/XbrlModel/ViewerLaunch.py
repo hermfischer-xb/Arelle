@@ -141,15 +141,29 @@ def sourceDocumentUrls(compMdl):
     document, so the recorded entry URL replaces it, expanded to the documents it names.
     """
     from .FactPipeline import reportDocumentUrls
+    dataSources = dataSourceNames(compMdl)
     urls = {}
     for module in compMdl.xbrlModels.values():
         for sm in getattr(module, "_sourceMappings", None) or ():
             sourceName = str(sm.sourceName) if getattr(sm, "sourceName", None) is not None else None
             url = getattr(sm, "url", None)
-            if not url:
+            if not url or sourceName in dataSources:
                 continue
             urls[sourceName] = reportDocumentUrls(compMdl, url)
     return urls
+
+
+def dataSourceNames(compMdl):
+    """Names of the fact sources whose fact map has a template (a tableTemplate reading CSV, or a
+    JSON or XML template map): their sources are data the model reads its facts from, not
+    documents a viewer renders, so they are neither staged nor opened."""
+    names = set()
+    for module in compMdl.xbrlModels.values():
+        for factSource in getattr(module, "factSources", None) or ():
+            factMap = compMdl.namedObjects.get(getattr(factSource, "factMapName", None))
+            if getattr(factMap, "templateName", None) is not None:
+                names.add(str(factSource.name))
+    return names
 
 
 def hasGridLayoutFacts(compMdl):

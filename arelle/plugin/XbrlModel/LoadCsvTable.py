@@ -241,7 +241,7 @@ def csvTableRowFacts(table, txmyMdl, error, warning, module, reportUrl=None): # 
                                             checkedDims.add(dimValue)
                                         else:
                                             potentialInvalidReferenceTargets[dimName] = dimValue
-                            elif ":" in dimName and ":" in dimValue:
+                            elif ":" in str(dimName) and ":" in dimValue:   # dimName may already be a QName
                                 # Best-effort default-member check against the compiled OIM
                                 # model. Core dimensions (xbrl:concept etc.) resolve to no
                                 # dimension object and are skipped; the default-member value
