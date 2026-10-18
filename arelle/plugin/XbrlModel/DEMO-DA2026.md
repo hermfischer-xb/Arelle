@@ -99,7 +99,7 @@ Put each file in `$DEMO/inputs/<folder>/` with the name shown. Those names are w
 | `eiopa-2.10/EIOPA_SolvencyII_XBRL_Instance_documents_2.10.0.zip` | [EIOPA](https://dev.eiopa.europa.eu/Taxonomy/Full/2.10.0/S2/EIOPA_SolvencyII_XBRL_Instance_documents_2.10.0.zip), EIOPA's sample XBRL 2.1 reports for every Solvency II entry point, with random and zero values, from the same page | `31494f7a34dd03399002a33abc0d07df87ba6d927c74ce4d8dbea81a4297e7e2` |
 | `dnb-5.0.0/dnb-mes-dpm-dictionary-and-annotated-templates-5-0-0.xlsx` | [DNB](https://www.dnb.nl/en/login/dlr/statistical-reporting/macroeconomic-statistics-reporting-mesrep/documentation-mesrep/), the MES 5.0.0 DPM dictionary and annotated templates (Download section) | `10e49f8e3793499d9397a97eeacf97688e278029cc48683ada4bbb77fea15e33` |
 | `dnb-5.0.0/DNB MES xBRL-CSV Sample Instances 5.0.0/MES_5.0.0_MOD_DTC.zip` | the same page, "DNB MES xBRL-CSV Sample Instances 5.0.0": the sample report package for deposit-taking corporations (the folder has one per module) | `f00b40d63f99eafdcf4562f966db3660cc20068f74b5ef133469d1bbd1f8853c` |
-| `sd/0000093410-26-000186-xbrl.zip` | [EDGAR](https://www.sec.gov/Archives/edgar/data/93410/000009341026000186/0000093410-26-000186-xbrl.zip), Chevron's Form SD for 2025 (resource extraction payments), filed as XBRL, not inline | `380fb20de730f36c00f553b8587e3263573852257dd3c3bcb4d50424ea019da6` |
+| `sd/0000093410-26-000186-xbrl.zip` | [EDGAR](https://www.sec.gov/Archives/edgar/data/93410/000009341026000186/0000093410-26-000186-xbrl.zip), Chevron's Form SD for 2025 (resource extraction payments), filed as XBRL-XML, not inline XBRL | `380fb20de730f36c00f553b8587e3263573852257dd3c3bcb4d50424ea019da6` |
 | `tavi-demo/tavi-demo-2026-09-01.zip` | [xbrl.org](https://www.xbrl.org/Specification/tavi/PWD-2026-09-01/demo/tavi-demo-2026-09-01.zip), the Tavi PWD's published demo, whose model viewer shows the generated templates as tables (step 8) | `4518c96461d7538953834d7506ad31a352023eb7a15ea7438f730adb8455d394` |
 | `principal/principal.pdf` | **made by hand:** `primary-document.htm` through *Create PDF from web page*, as for Pacific Life | varies |
 
@@ -329,9 +329,9 @@ ixbrlviewer.html?xbrlModel=report-DTC-model.json` (and the harmless `[viewer:exc
 other module packages (`MES_5.0.0_MOD_IC.zip`, …) work
 the same way.
 
-## 8c. A Form SD filed as XBRL, shown as EDGAR-style report pages
+## 8c. A Form SD filed as XBRL-XML, shown as EDGAR-style report pages
 
-SEC still receives some filings as XBRL rather than inline XBRL: Form SD, the resource extraction payments
+SEC still receives some filings as XBRL-XML rather than inline XBRL: Form SD, the resource extraction payments
 report (all 67 non-inline filings in EDGAR's September 2026 XBRL feed are SDs). Such a report has no
 document to show its facts on. Loaded as a Tavi model, its groups, presentation networks and cubes are
 shown by the viewer as report pages in the form of EDGAR's R files: a menu by category, and a page per
