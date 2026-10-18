@@ -166,6 +166,35 @@ def dataSourceNames(compMdl):
     return names
 
 
+def stageDataSources(cntlr, compMdl, folder):
+    """Copy the data the model reads its facts from (template-read sources: CSV tables, JSON or
+    XML data) into folder/data and return {sourceName: relative path}, so the staged model names
+    them inside the stage and reloads from it alone. Names keep the source's basename, numbered
+    when two sources share one."""
+    dataSources = dataSourceNames(compMdl)
+    staged, used = {}, set()
+    for module in compMdl.xbrlModels.values():
+        for sm in getattr(module, "_sourceMappings", None) or ():
+            sourceName = str(sm.sourceName) if getattr(sm, "sourceName", None) is not None else None
+            url = getattr(sm, "url", None)
+            if not url or sourceName not in dataSources or sourceName in staged:
+                continue
+            data = readDocument(cntlr, url)
+            if data is None:
+                continue
+            stem, ext = os.path.splitext(os.path.basename(url.split("?", 1)[0].split("#", 1)[0]))
+            name, n = stem + ext, 1
+            while name in used:
+                n += 1
+                name = f"{stem}-{n}{ext}"
+            used.add(name)
+            os.makedirs(os.path.join(folder, "data"), exist_ok=True)
+            with open(os.path.join(folder, "data", name), "wb") as fh:
+                fh.write(data)
+            staged[sourceName] = "data/" + name
+    return staged
+
+
 def hasGridLayoutFacts(compMdl):
     """Whether the model has facts and gridLayout data tables to show them in. A report with no
     document of its own, such as a prudential report, is shown by the viewer as its tables."""
@@ -331,11 +360,15 @@ def stageForViewer(cntlr, compMdl, folder, saveMode="full"):
             basename = stageDocument(cntlr, url, folder)
             if basename is not None and sourceName not in stagedNames:
                 stagedNames[sourceName] = basename
+    # The data the facts are read from is staged too, so that the staged model does not name
+    # files outside the stage.
+    stagedData = stageDataSources(cntlr, compMdl, folder)
     if not stagedNames and not documentUrls and hasGridLayoutFacts(compMdl):
-        # No document: the viewer draws the model's grid layout tables, so the model is all
-        # that is staged.
+        # No document: the viewer draws the model's grid layout tables, so the model (and its
+        # data) is all that is staged.
         modelName = os.path.splitext(os.path.basename(getattr(compMdl, "uri", None) or "model"))[0] + MODEL_SUFFIX
-        saveFiles(cntlr, compMdl, os.path.join(folder, modelName), saveMode=saveMode)
+        saveFiles(cntlr, compMdl, os.path.join(folder, modelName), saveMode=saveMode,
+                  sourceUrlRewrite=lambda sourceName, url: stagedData.get(sourceName))
         return _stageViewerFiles(folder, bundleDir, modelName)
     if not stagedNames:
         cntlr.addToLog(_("The model names no source document that could be staged, so there is "
@@ -360,7 +393,7 @@ def stageForViewer(cntlr, compMdl, folder, saveMode="full"):
     # the document from the model itself and the staged directory is self-contained.
     modelName = os.path.splitext(next(iter(stagedNames.values())))[0] + MODEL_SUFFIX
     saveFiles(cntlr, compMdl, os.path.join(folder, modelName), saveMode=saveMode,
-              sourceUrlRewrite=lambda sourceName, url: stagedNames.get(sourceName),
+              sourceUrlRewrite=lambda sourceName, url: stagedNames.get(sourceName) or stagedData.get(sourceName),
               derivedSourceUrlRewrite=stagedDerived.get)
     return _stageViewerFiles(folder, bundleDir, modelName)
 
