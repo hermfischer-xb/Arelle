@@ -192,7 +192,7 @@ def main(argv):
         for code in keyCodes:
             if code not in keyDims:
                 problems.append(f"{table}: key column {code} has no dimension")
-        keyDimSet = set(keyDims.values())
+        keyDimSet = OrderedDict.fromkeys(keyDims.values())   # ordered: it orders the table's dimensions
         for d in keyDimSet:                 # a key column holds any member of its dimension's domain
             if not isTyped(d):
                 membersUsed.update(domainMembers.get(dimensions.get(d), ()))
@@ -353,7 +353,7 @@ def main(argv):
     domainClasses = [{"name": f"{d}Cls", "allowedDomainItem": typedDomains.get(dimensions[d], "xs:string") if isTyped(d)
                       else "xbrl:memberObject"} for d in usedDims]
     members = [{"name": m} for m in sorted(membersUsed)]
-    for m in membersUsed:
+    for m in sorted(membersUsed):           # a set: sorted, so the output does not depend on hash order
         if memberLabels.get(m):
             labels[m] = memberLabels[m]
     usedPrefixes = {n.partition(":")[0] for n in list(membersUsed) + usedDims + [c["name"] for c in concepts]} | {fws, "iso4217", "lei"}
