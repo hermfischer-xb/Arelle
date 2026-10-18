@@ -342,13 +342,13 @@ governments down).
 mkdir -p $OUT/sd && cd $OUT/sd
 unzip -q -o $IN/sd/0000093410-26-000186-xbrl.zip -d src
 arelle report.log --plugins XbrlModel -f src/cvx-20251231.xml --validate
-arelle stage.log --plugins "XbrlModel|$VIEWER_PLUGIN" -f src/cvx-20251231.xml --saveXbrlModelViewer stage
+arelle stage-pages.log --plugins "XbrlModel|$VIEWER_PLUGIN" -f src/cvx-20251231.xml --saveXbrlModelViewer stage-pages
 ```
 
 **Check:** `report.log` has no message other than `[info]` lines and Arelle's own `arelle:oim…` notes.
-`stage.log` has `Staged iXBRL Viewer in stage; serve it and open
+`stage-pages.log` has `Staged iXBRL Viewer in stage-pages; serve it and open
 ixbrlviewer.html?xbrlModel=cvx-20251231-model.json` (and the harmless `[viewer:exception]` line of step 8).
-The instance is data the model reads its facts from, so it is staged as `stage/data/cvx-20251231.xml`.
+The instance is data the model reads its facts from, so it is staged as `stage-pages/data/cvx-20251231.xml`.
 
 ## 9. View
 
@@ -368,7 +368,7 @@ Open, in a browser:
 | EIOPA Solvency II templates, with the annual sample's facts | `eiopa/stage-tables/ixbrlviewer.html?xbrlModel=eiopa-ars-model.json` |
 | EIOPA S.02.01.01.01 balance sheet, with the quarterly sample's facts | `eiopa/stage-S.02.01/ixbrlviewer.html?xbrlModel=S.02.01.01.01-qrs-model.json` |
 | DNB MES templates, with the deposit-taking corporations sample | `dnb/stage-DTC/ixbrlviewer.html?xbrlModel=report-DTC-model.json` |
-| Chevron's Form SD, as EDGAR-style report pages | `sd/stage/ixbrlviewer.html?xbrlModel=cvx-20251231-model.json` |
+| Chevron's Form SD, as EDGAR-style report pages | `sd/stage-pages/ixbrlviewer.html?xbrlModel=cvx-20251231-model.json` |
 
 Each staging step's log names its URL. If a name differs, use the one the log gives.
 
