@@ -93,6 +93,16 @@ def saveableValue(val, mdlPropName, **kwargs):
         return val
     elif isinstance(val, float): # a numeric value (e.g. a relationship order) must stay a number
         return int(val) if val.is_integer() else val
+    elif isinstance(val, dict):
+        # Plain JSON data held as-is, such as a table template's column objects: a JSON object,
+        # not its Python repr, with QName keys and values converted (and their namespaces tracked).
+        return OrderedDict((saveableValue(k, mdlPropName, **kwargs) if isinstance(k, QName) else str(k),
+                            saveableValue(v, mdlPropName, **kwargs))
+                           for k, v in val.items())
+    elif isinstance(val, list):
+        return [saveableValue(v, mdlPropName, **kwargs) for v in val]
+    elif val is None:
+        return None
     return str(val)
 
 def unitDimensionString(unitQnTuple, mdlPropName, **kwargs):
@@ -179,7 +189,11 @@ def saveableObjects(mdlObj, mdlName, **kwargs):
         elif isinstance(propVal, (dict, OrderedDict)):
             # Map-typed property (factDimensions, factQualifier, template columns ...) --
             # serialize as a JSON object preserving keys; QName keys/values track namespaces.
-            if propVal: # skip empty map (absent convention)
+            if not propVal and get_origin(propType) is dict:
+                # an empty map of a non-Optional property is kept: the schema requires it (an
+                # open table's key-column axis item has dimensions {})
+                saveableObj[propName] = OrderedDict()
+            elif propVal: # skip empty optional map (absent convention)
                 saveVal = OrderedDict()
                 saveableObj[propName] = saveVal
                 for objName, objVal in propVal.items():

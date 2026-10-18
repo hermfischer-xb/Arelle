@@ -12,7 +12,7 @@ from arelle.oim.Load import (parseMetadataCellValues, csvCellValue, _isParamRef,
                              CSV_FACTS_FILE, EMPTY_LIST, EMPTY_DICT, EMPTY_CELL, NONE_CELL, INVALID_REFERENCE_TARGET,
                              RowIdentifierPattern)
 from arelle.oim.const import IDENTIFIER_PATTERN as IdentifierPattern
-from arelle.ModelValue import qname
+from arelle.ModelValue import QName, qname
 from .XbrlConcept import XbrlConcept
 from .XbrlCube import (coreDimensionsByLocalname, coreDimensions,
                        conceptCoreDim, entityCoreDim, languageCoreDim)
@@ -114,6 +114,12 @@ def csvTableRowFacts(table, txmyMdl, error, warning, module, reportUrl=None): # 
     templateColumns, tableDimensions, tableDecimals, rowIdColName = _templateFrontEnd(tableTemplate)
 
     tableId = table.name.localName
+    # A fact read from the table is named in the table's (fact source's) namespace, as every
+    # object name is a QName; a table with no namespace (none is declared) keeps an unprefixed name.
+    def factQName(localName):
+        if table.name.namespaceURI:
+            return QName(table.name.prefix, table.name.namespaceURI, localName)
+        return qname(localName, prefixNamespaces)
     # tableIsTransposed = tableTemplate.get("transposed", False)
     parseMetadataCellValues(tableDimensions)
     tableParameters = table.parameters or {}
@@ -486,7 +492,7 @@ def csvTableRowFacts(table, txmyMdl, error, warning, module, reportUrl=None): # 
                 txmyMdl.xbrlObjects.append(factPositionObj)
                 factPositionObj.parent = module
                 factPositionObj.module = module
-                factPositionObj.name = qname(factId, prefixNamespaces)
+                factPositionObj.name = factQName(factId)
                 factPositionObj.value = fact.get("value")
                 factPositionObj.decimals = None
                 factPositionObj.extends = None
@@ -551,7 +557,7 @@ def csvTableRowFacts(table, txmyMdl, error, warning, module, reportUrl=None): # 
                 fv = XbrlFactValue(xbrlMdlObjIndex=len(txmyMdl.xbrlObjects))
                 txmyMdl.xbrlObjects.append(fv)
                 fv.fact = factPositionObj
-                fv.name = qname(factId + "_fv", prefixNamespaces)
+                fv.name = factQName(factId + "_fv")
                 fv.value = factPositionObj.value
                 fv.decimals = factPositionObj.decimals
                 fv.language = factPositionObj.factDimensions.get(languageCoreDim)
