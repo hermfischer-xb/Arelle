@@ -737,7 +737,26 @@ GUI runs use the defaults (chrome engine, reflow on). For a different engine
      PDF (by its ticker/name) and a fact gets a **soft score bonus** for matching
      inside its own fund's PDF page range — enough to defeat the cross-fund
      repetition, but never a hard filter, so an imperfect header mapping degrades
-     to global matching instead of dropping the fact.
+     to global matching instead of dropping the fact. A header is found by its
+     mutual fund ticker (five capitals ending in X), else by all its letters over a
+     few consecutive rows; pages on which four or more sections would start are a
+     table of contents and are skipped, and the last section is capped (the
+     financial statements that follow repeat its figures).
+     PDF rows are banded on pdfium's **loose** char box (font ascent to descent),
+     the same for every glyph on a line: on the tight box a comma hangs below the
+     baseline and forms a row of its own, leaving `$136,570` as `136570`.
+     Clip-hidden rows (chart data tables) are not alignment units. A label printed
+     without a column gap before its value (`…(amount in thousands) $22,184`) still
+     counts as label.
+     After the chain, two passes correct what a monotone chain cannot. **Repair**:
+     a row matched outside its own section, or where its label is not, moves to a
+     row inside its section that fits (every value, and the label on that line or
+     the one above or below) and that no other row holds — two share classes print
+     the same fund-level Key Facts, and the chain can otherwise only reach the next
+     class's copy. **Out-of-order**: a row the chain left out takes a fitting row
+     whose values are still free, on a page between those of its placed html
+     neighbours — a Key Facts grid that fills column by column prints as two lines
+     in the other order, and a two-column page interleaves its tables.
      A cell that is exactly one whole MCID keeps the reflow-robust `pdfMcid`; a
      cell inside a coarse/merged MCID gets its own glyph `pdfBBox`.
   2. **Token patience alignment (fallback)** for facts not in a table (narrative)
@@ -745,19 +764,35 @@ GUI runs use the defaults (chrome engine, reflow on). For a different engine
      streams and aligned with a **recursive patience alignment** (anchor on tokens
      locally unique within each gap, recurse, `difflib` only on tiny base gaps; a
      global `difflib` on ~360 k-token streams never finishes). Clip-hidden subtrees
-     are excluded (not in the PDF).
+     are excluded (not in the PDF). A **chart image** comes before it: a chart's
+     data points, and a block that wraps a chart and its hidden data table with
+     little visible text of its own (`LineGraphTableTextBlock`), are located on the
+     chart's image region. A block of 12 or more tokens keeps a token placement only
+     when half of it aligned and half its words — and half its numbers — are in the
+     marked content it lands on: the shared words of one fund's Key Facts box
+     otherwise take the block to the box beside it.
   3. **Phrase-locate fallback** for anything still unmapped (prose text blocks,
      addresses): the fact's distinctive text is matched as a **phrase** against the
      MCID cache (a word inverted index + longest common contiguous run, expected
      page breaking ties). Patience alignment anchors on *unique* tokens and skips
      anchor-less prose even when it is present as one clean MCID; a phrase (a run
-     of common words) is distinctive where its words are not.
+     of common words) is distinctive where its words are not. A match counts only
+     between the pages of the fact's located neighbours in document order, and a
+     block needs half its words and numbers there, as above.
+  4. **Glyph span** for printed text that is not marked content (an N-CSR's Key
+     Facts box is untagged on most pages): the block is found in the page's glyph
+     text as 10-character grams unique on the page, chained in order, near its
+     expected page and continued across a page break; failing that, as 6-character
+     grams in any order in the densest stretch of the page (side-by-side tables are
+     drawn interleaved). It needs 60% of the block and half its numbers, and is
+     emitted as a `pdfBBox` per page. A short fact in an `<h1>` section header
+     takes the first occurrence of its text on its expected page.
 - **Aligner image match.** Each HTML `<img>` is matched to a PDF image XObject by
   content hash (exact md5, with a 64-bit **dHash** perceptual fallback for JPEGs
   Acrobat re-encoded), and its placement (page + bbox) recovered from the
-  content-stream CTM. When an image is placed on several pages, the placement
-  nearest the chart's document position (via the nearest content-located fact's
-  page) is chosen. `pdfImageHash` stores the PDF image's **exact** md5; the dHash
+  content-stream CTM. When an image is placed on several pages (share classes of
+  one fund can print the same chart), the placement nearest the chart's document
+  position (via the nearest located fact's page, row placements first) is chosen. `pdfImageHash` stores the PDF image's **exact** md5; the dHash
   is only an authoring-time pairing aid, so no spec change is needed.
 - **Resolver performance.** [`PdfTextExtractor`](PdfTextExtractor.py) resolves a
   single `pdfMcid` by walking only that one page (`_pageMcidText`), ~0.2 s vs a
