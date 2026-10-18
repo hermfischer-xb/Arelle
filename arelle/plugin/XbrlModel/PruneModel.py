@@ -145,6 +145,19 @@ def pruneClosure(txmyMdl, includeNetworks=False):
                 for propObj in getattr(obj, "properties", None) or ():
                     add(getattr(propObj, "property", None))
 
+    # A fact value is a prefixed name in the report's own prefixes, which a compiled model's
+    # prefixedNamespaces need not hold (a filer's prefix); the named objects' QNames carry them.
+    namedPrefixes = {}
+    def _valueQName(text):
+        vq = qname(text, pfxns)
+        if isinstance(vq, QName) and vq in named:
+            return vq
+        prefix, _, local = text.partition(":")
+        if not namedPrefixes:
+            namedPrefixes.update((q.prefix, q.namespaceURI) for q in named if isinstance(q, QName) and q.prefix)
+        ns = namedPrefixes.get(prefix)
+        return QName(prefix, ns, local) if ns and local else None
+
     # ---- seed from the reported facts ----
     for module in txmyMdl.xbrlModels.values():
         for fact in getattr(module, "facts", None) or ():
@@ -159,6 +172,19 @@ def pruneClosure(txmyMdl, includeNetworks=False):
                         add(dimVal)
             for factValue in getattr(fact, "factValues", None) or ():
                 add(getattr(factValue, "transformation", None))
+                # a QName-valued fact (a member as a value, as Form SD's resource and segment
+                # facts are, or an enumeration's members) names objects a consumer labels
+                value = getattr(factValue, "value", None)
+                if isinstance(value, QName):
+                    value = [value]
+                elif isinstance(value, str) and ":" in value and "//" not in value and len(value) < 4096:
+                    value = value.split()
+                else:
+                    value = ()
+                for token in value:
+                    vq = token if isinstance(token, QName) else _valueQName(token)
+                    if isinstance(vq, QName) and vq in named:
+                        add(vq)
     drain()
 
     # ---- types the retained content refers to ------------------------------------------
