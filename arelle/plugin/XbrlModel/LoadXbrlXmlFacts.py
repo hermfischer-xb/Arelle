@@ -170,7 +170,9 @@ def parseXbrlXmlFacts(compMdl, module, factSource, url):
             if uStr is not None:
                 fact.factDimensions[unitCoreDim] = uStr
 
-        lang = elt.get(_clark(XMLNS, "lang")) or _inheritedLang(elt)
+        # xml:lang is case-insensitive in XBRL 2.1 ("en-US"); an OIM language is lower case
+        # (xbrlje:invalidLanguageCodeCase), so it is lower-cased on the way in.
+        lang = (elt.get(_clark(XMLNS, "lang")) or _inheritedLang(elt) or "").lower() or None
         if lang and conceptObj.isOimTextFactType(compMdl):
             fact.factDimensions[languageCoreDim] = lang
 
@@ -234,7 +236,7 @@ def _parseFootnotes(compMdl, root, nsmap, factPrefix, factNs, factIdByElt, footn
             label = fn.get(_clark(XLINK, "label"))
             if label is None:
                 continue
-            lang = fn.get(_clark(XMLNS, "lang")) or _inheritedLang(fn)
+            lang = (fn.get(_clark(XMLNS, "lang")) or _inheritedLang(fn) or "").lower() or None  # OIM: lower case
             content = _innerText(fn)
             labelToFootnote[label] = (content, lang)
         # walk footnoteArcs from fact-locator label to footnote-resource label

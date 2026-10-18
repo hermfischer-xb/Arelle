@@ -388,7 +388,9 @@ def _emitFact(compMdl, module, imf, conceptQn, conceptObj,
         if uStr is not None:
             fact.factDimensions[unitCoreDim] = uStr
 
-    lang = imf.get(clark(XMLNS, "lang")) or inheritedLang(imf)
+    # xml:lang is case-insensitive in inline XBRL ("en-US"); an OIM language is lower case
+    # (xbrlje:invalidLanguageCodeCase), so it is lower-cased on the way in.
+    lang = (imf.get(clark(XMLNS, "lang")) or inheritedLang(imf) or "").lower() or None
     isText = conceptObj.isOimTextFactType(compMdl)
     if lang and isText:
         fact.factDimensions[languageCoreDim] = lang
