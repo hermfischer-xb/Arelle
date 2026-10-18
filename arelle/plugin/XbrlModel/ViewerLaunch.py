@@ -215,7 +215,7 @@ def hasGridLayoutFacts(compMdl):
 
 def hasReportGroupFacts(compMdl):
     """Whether the model has facts and groups with contents (networks, cubes) to show them in:
-    a report with no document of its own, such as an XBRL-XML (not inline) filing, is shown by the
+    a report with no document of its own, such as an xBRL-XML (not inline) filing, is shown by the
     viewer as report pages, one per group."""
     if not any(getattr(module, "facts", None) for module in compMdl.xbrlModels.values()):
         return False

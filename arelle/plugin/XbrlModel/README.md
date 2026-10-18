@@ -276,7 +276,7 @@ See the quick start above for the worked example. The options:
 |---|---|
 | `--saveOIMmodel <file>` | save the loaded model as one compiled model (`.json` / `.cbor` / `.xlsx`) |
 | `--oimSaveMode full\|prune\|report` | how much to emit (§"Saving a model") — default `full` |
-| `--saveXbrlModelViewer <dir>` | stage a servable viewer directory: model + source document(s) + viewer bundle |
+| `--saveXbrlModelViewer <dir>` | stage a servable viewer directory: model + source document(s) + viewer bundle; for a report with no document, the model and the data its facts are read from (shown as grid-layout tables or report pages) |
 | `--calcRoundingMode roundToNearest\|truncation` | override the model's declared rounding mode (§7) |
 | `--xbrlModelStreamThreshold <n>` | fact count above which a fact source must stream |
 | `--applyTaggingJournal <file>` | apply a tagging journal from the iXBRL Viewer's tagger (below) |
@@ -618,7 +618,11 @@ a legacy inline report); it uses the viewer's XbrlModel overlay, which takes a p
 document plus an OIM model.
 
 - **Automatic on load**, when the model has a source document *and* facts located in
-  it. **Tools ▸ "Open iXBRL Viewer on load"** turns that off.
+  it — or, with no document, facts and something to show them in: grid layout tables
+  (a prudential report is its templates; the viewer's table surface), or groups with
+  networks and cubes (an xBRL-XML filing, such as SEC's Form SD or a filing from
+  before inline XBRL; the viewer's report pages, in the form of EDGAR's R files).
+  **Tools ▸ "Open iXBRL Viewer on load"** turns that off.
 - **Tools ▸ "View XBRL model in iXBRL Viewer"** opens the loaded model on request.
 - **`--saveXbrlModelViewer <dir>`** (command line) stages the same directory without
   opening a browser, for serving elsewhere.
@@ -634,6 +638,10 @@ Either way the staged directory is self-contained:
 - the rendering named by `derivedContent.reportSource`, when the model carries
   facts placed on one as derived content (an alignment onto a company's web page),
   with its assets as above;
+- the data the model reads its facts from — an xBRL-XML instance, an xBRL-JSON or
+  xBRL-CSV report, CSV files read through table templates — under `data/`, with the
+  model's `sourceMappings` naming the copies, so the directory reloads and re-validates
+  on its own and can be moved;
 - the viewer bundle, a stub `ixbrlviewer.html`, and an empty
   `ixbrlviewer.config.json` (the viewer always requests one; an existing one is
   left alone).
@@ -780,6 +788,13 @@ because they show up in the emitted names and in what survives:
   `xbrli:shares` resolves to no unit object, so every shares and per-share fact
   fails `oimte:factUnitDatatypeMismatch`. The unit model is still being settled in
   the working group, and this fold will follow it.
+* **Labels keep their roles.** Besides the standard label, a concept carries each
+  label role that `core.json` declares a `labelType` for (terse, total, negated,
+  period start and end, …; read from the shipped resources by role URI), and a
+  parent-child relationship carries the arc's `preferredLabel` as an
+  `xbrl:preferredLabel` property when the target has a label of that type. A
+  presentation shown as the filer presented it — the viewer's report pages — needs
+  both: Microsoft's balance sheet says *Total current assets*, not *Assets, Current*.
 * **Synthesised names carry a digest when abbreviated.** Group, cube and network
   names derive from extended-link role URIs, which SEC filers make long and
   highly similar — `…OfferingsDetail` and `…OfferingsParentheticalDetail` agree
