@@ -99,6 +99,7 @@ Put each file in `$DEMO/inputs/<folder>/` with the name shown. Those names are w
 | `eiopa-2.10/EIOPA_SolvencyII_XBRL_Instance_documents_2.10.0.zip` | [EIOPA](https://dev.eiopa.europa.eu/Taxonomy/Full/2.10.0/S2/EIOPA_SolvencyII_XBRL_Instance_documents_2.10.0.zip), EIOPA's sample XBRL 2.1 reports for every Solvency II entry point, with random and zero values, from the same page | `31494f7a34dd03399002a33abc0d07df87ba6d927c74ce4d8dbea81a4297e7e2` |
 | `dnb-5.0.0/dnb-mes-dpm-dictionary-and-annotated-templates-5-0-0.xlsx` | [DNB](https://www.dnb.nl/en/login/dlr/statistical-reporting/macroeconomic-statistics-reporting-mesrep/documentation-mesrep/), the MES 5.0.0 DPM dictionary and annotated templates (Download section) | `10e49f8e3793499d9397a97eeacf97688e278029cc48683ada4bbb77fea15e33` |
 | `dnb-5.0.0/DNB MES xBRL-CSV Sample Instances 5.0.0/MES_5.0.0_MOD_DTC.zip` | the same page, "DNB MES xBRL-CSV Sample Instances 5.0.0": the sample report package for deposit-taking corporations (the folder has one per module) | `f00b40d63f99eafdcf4562f966db3660cc20068f74b5ef133469d1bbd1f8853c` |
+| `sd/0000093410-26-000186-xbrl.zip` | [EDGAR](https://www.sec.gov/Archives/edgar/data/93410/000009341026000186/0000093410-26-000186-xbrl.zip), Chevron's Form SD for 2025 (resource extraction payments), filed as XBRL, not inline | `380fb20de730f36c00f553b8587e3263573852257dd3c3bcb4d50424ea019da6` |
 | `tavi-demo/tavi-demo-2026-09-01.zip` | [xbrl.org](https://www.xbrl.org/Specification/tavi/PWD-2026-09-01/demo/tavi-demo-2026-09-01.zip), the Tavi PWD's published demo, whose model viewer shows the generated templates as tables (step 8) | `4518c96461d7538953834d7506ad31a352023eb7a15ea7438f730adb8455d394` |
 | `principal/principal.pdf` | **made by hand:** `primary-document.htm` through *Create PDF from web page*, as for Pacific Life | varies |
 
@@ -328,6 +329,27 @@ ixbrlviewer.html?xbrlModel=report-DTC-model.json` (and the harmless `[viewer:exc
 other module packages (`MES_5.0.0_MOD_IC.zip`, …) work
 the same way.
 
+## 8c. A Form SD filed as XBRL, shown as EDGAR-style report pages
+
+SEC still receives some filings as XBRL rather than inline XBRL: Form SD, the resource extraction payments
+report (all 67 non-inline filings in EDGAR's September 2026 XBRL feed are SDs). Such a report has no
+document to show its facts on. Loaded as a Tavi model, its groups, presentation networks and cubes are
+shown by the viewer as report pages in the form of EDGAR's R files: a menu by category, and a page per
+group, with the payment pages laid out as EDGAR lays them out (payment types across; projects or
+governments down).
+
+```bash
+mkdir -p $OUT/sd && cd $OUT/sd
+unzip -q -o $IN/sd/0000093410-26-000186-xbrl.zip -d src
+arelle report.log --plugins XbrlModel -f src/cvx-20251231.xml --validate
+arelle stage.log --plugins "XbrlModel|$VIEWER_PLUGIN" -f src/cvx-20251231.xml --saveXbrlModelViewer stage
+```
+
+**Check:** `report.log` has no message other than `[info]` lines and Arelle's own `arelle:oim…` notes.
+`stage.log` has `Staged iXBRL Viewer in stage; serve it and open
+ixbrlviewer.html?xbrlModel=cvx-20251231-model.json` (and the harmless `[viewer:exception]` line of step 8).
+The instance is data the model reads its facts from, so it is staged as `stage/data/cvx-20251231.xml`.
+
 ## 9. View
 
 ```bash
@@ -346,6 +368,7 @@ Open, in a browser:
 | EIOPA Solvency II templates, with the annual sample's facts | `eiopa/stage-tables/ixbrlviewer.html?xbrlModel=eiopa-ars-model.json` |
 | EIOPA S.02.01.01.01 balance sheet, with the quarterly sample's facts | `eiopa/stage-S.02.01/ixbrlviewer.html?xbrlModel=S.02.01.01.01-qrs-model.json` |
 | DNB MES templates, with the deposit-taking corporations sample | `dnb/stage-DTC/ixbrlviewer.html?xbrlModel=report-DTC-model.json` |
+| Chevron's Form SD, as EDGAR-style report pages | `sd/stage/ixbrlviewer.html?xbrlModel=cvx-20251231-model.json` |
 
 Each staging step's log names its URL. If a name differs, use the one the log gives.
 
@@ -371,6 +394,13 @@ table: its one row has Listed shares, Afghanistan, Non-financial corporations an
 columns and 19,000 in C010; selecting it shows `dnb_met:mi004` (Amount), € 19,000 at 31 December 2025, with
 its dimensions by label (Valuation: Transaction value, Flow: Operational result, …). A fact that DNB defines
 in two templates (the workbook marks such cells as duplicates) appears in both.
+
+**Check, Form SD:** the menu has Cover (Document Information) and four payment pages, as EDGAR's R pages for
+this filing have. Payments, by Category is one row: Total, $ 5,551,367 taxes … $ 12,241,143 total payments
+(in thousands). Payments, by Project has a row per project; selecting Offshore-Mediterranian Sea/Tel
+Aviv/Oil/Natural Gas/Well, Taxes shows `rxp:Taxes`, US$ 220,661,000, 1 January to 31 December 2025, with its Project member.
+Payments, Details has a row per payment, with its type, country, government, project, resource and segment
+by label. The 1,183 facts are in 1,197 cells (a payment total appears on more than one page).
 
 ## 10. The same demonstrations in the Arelle desktop application
 
@@ -441,7 +471,8 @@ templates as tables, as in step 9. Loading and building the views for the whole 
 facts, opens in Arelle with no viewer: there is nothing to show in its tables.
 
 Open `$OUT/dnb/report-DTC.json` too: Arelle reads the report's facts from DNB's CSV files through its fact
-sources, validates them, and the viewer opens on DNB's templates.
+sources, validates them, and the viewer opens on DNB's templates. And open `$OUT/sd/src/cvx-20251231.xml`:
+the Form SD becomes a Tavi model, and the viewer opens on its report pages.
 
 **Check:** as in step 9, EIOPA and DNB. If the browser shows "No source document specified", the viewer plugin is
 older than this code: update `$DEMO/viewer`, rebuild it (step 2) and restart Arelle.
