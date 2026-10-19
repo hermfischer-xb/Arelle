@@ -26,7 +26,7 @@ The output is fed to ``loadXbrlModule(cntlr, error, warning, None, moduleDict, u
 """
 from __future__ import annotations
 
-import io, os
+import io, os, re
 from collections import OrderedDict, defaultdict
 from typing import TYPE_CHECKING, Optional
 
@@ -471,7 +471,7 @@ def legacyTaxonomyToOimModule(modelXbrl, moduleName: Optional[str] = None,
         if r.fromModelObject is not None and r.toModelObject is not None:
             dimDefault[pfx.pn(r.fromModelObject.qname)] = pfx.pn(r.toModelObject.qname)
 
-    for roleUri in sorted(set(presAll.linkRoleUris) | hasHcRoles):
+    for roleUri in sorted(set(presAll.linkRoleUris) | hasHcRoles, key=lambda uri: _roleOrderKey(modelXbrl, uri)):
         grpLocal = _safeLocal(roleUri)
         grpName = pfx.prefixFor(_documentNs(modelXbrl)) + ":group_" + grpLocal
         groups.append({"name": grpName, "groupURI": roleUri})
@@ -1095,6 +1095,16 @@ def _safeLocal(uri: str) -> str:
         return local
     digest = hashlib.sha1(local.encode("utf-8")).hexdigest()[:6]
     return "{}_{}".format(local[:_MAX_SYNTHESISED_LOCAL - len(digest) - 1], digest)
+
+
+def _roleOrderKey(modelXbrl, roleUri: str):
+    """The order of a linkrole's group, cube and networks in the model: the report's own order,
+    which SEC and ESEF give by the code that starts each role's definition ("9952151 - Statement -
+    ...", "[110000] ..."), as their viewers sort them; then by definition, then by URI, so roles
+    without a code follow in a stable order."""
+    definition = _roleDefinition(modelXbrl, roleUri) or ""
+    m = re.match(r"\s*\[?\s*(\d+(?:\.\d+)?)", definition)
+    return (0, float(m.group(1)), definition, roleUri) if m else (1, 0.0, definition, roleUri)
 
 
 def _roleDefinition(modelXbrl, roleUri: str) -> Optional[str]:
