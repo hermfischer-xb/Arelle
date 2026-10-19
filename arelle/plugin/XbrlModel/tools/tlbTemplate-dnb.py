@@ -234,6 +234,7 @@ def main(argv):
                   for x in sheet["xCodes"]]
         xAxis = {"gridHeaders": sheet["xHeaders"], "gridAxis": {"axisItems": xItems}} if sheet["xHeaders"] else \
                 {"gridAxis": {"axisItems": xItems}}
+        keyNetworks = {}                    # key dimension -> its hierarchy network
         if keyDims:
             # a key column holds members of the hierarchy its Hierarchy cell names ("Listed shares
             # {…}"): the axis group's network, so another template's rows are not this one's
@@ -248,6 +249,7 @@ def main(argv):
                     domainNetworks.append({"name": networkName, "root": root,
                                            "relationships": [{"source": root, "target": m} for m in members]})
                     group["axisNetwork"] = networkName
+                    keyNetworks[d] = networkName
                     membersUsed.update(members)
                 elif not isTyped(d):
                     problems.append(f"{table}: key column {code} hierarchy {hierarchy!r} not found")
@@ -295,10 +297,29 @@ def main(argv):
         domainNetworks.append({"name": conceptDom, "root": "xbrl:conceptDomain",
                                "relationships": [{"source": "xbrl:conceptDomain", "target": m} for m in tableConcepts]})
         cubeDims = [{"dimension": "xbrl:concept", "domainNetwork": conceptDom}]
+        # Each explicit dimension admits only the members this template uses: a key column's
+        # hierarchy, else the members on its cells.  Without a domain, a cube admits any member,
+        # and templates that share dimensions (most of DNB's do) would each admit the others'
+        # facts.  A dimension every valid cell has is required; a typed one stays open.
         for d in tableDims:
             dimsUsed[d] = True
-            cubeDims.append({"dimension": d, "domainDataType": typedDomains.get(dimensions.get(d), "xs:string"), "optional": True}
-                            if isTyped(d) else {"dimension": d, "optional": True})
+            optional = not all(c["dims"].get(d) is not None for c in valid) and d not in keyDimSet
+            if isTyped(d):
+                cubeDim = {"dimension": d, "domainDataType": typedDomains.get(dimensions.get(d), "xs:string")}
+            else:
+                domainName = keyNetworks.get(d)
+                if domainName is None:
+                    cellMembers = list(OrderedDict.fromkeys(c["dims"][d] for c in cells if c["dims"].get(d) is not None))
+                    if cellMembers:
+                        domainName = f"{qnTable}_{d.partition(':')[2]}_Dom"
+                        root = f"{d}Cls"
+                        domainNetworks.append({"name": domainName, "root": root,
+                                               "relationships": [{"source": root, "target": m} for m in cellMembers]})
+                        membersUsed.update(cellMembers)
+                cubeDim = {"dimension": d, "domainNetwork": domainName} if domainName else {"dimension": d}
+            if optional:
+                cubeDim["optional"] = True
+            cubeDims.append(cubeDim)
         cubeDims += [{"dimension": "xbrl:period"}, {"dimension": "xbrl:entity"}, {"dimension": "xbrl:unit", "optional": True}]
         cube = {"name": f"{qnTable}_Cube", "cubeType": "xbrl:reportCube", "cubeDimensions": cubeDims}
         excludes = []
