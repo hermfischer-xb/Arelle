@@ -261,12 +261,25 @@ def collectSourceMappings(txmyMdl, sourceUrlRewrite=None):
         to emit (or None to emit the url unchanged); ViewerLaunch uses it to name the document
         it staged beside the model.
     """
+    # A report loaded from an archive binds its sourceMapping to the archive (see
+    # FactPipeline.reportDocumentUrls), and the document it was loaded from is known only to this
+    # session. Saved as the archive, the model names something no consumer can render or read text
+    # from once it is reopened -- a viewer then shows the zip's bytes as a page. So the saved
+    # mapping names the document inside the archive (FileSource reads an "archive/member" path),
+    # or the inline document set when the report spans several documents.
+    entryUrl = getattr(txmyMdl, "_xbrlModelReportEntryUrl", None)
     seen = set()
     out = []
     for module in txmyMdl.xbrlModels.values():
         for sm in getattr(module, "_sourceMappings", None) or ():
             sn = str(sm.sourceName) if getattr(sm, "sourceName", None) is not None else None
             url = getattr(sm, "url", None)
+            if url and entryUrl and entryUrl != url and entryUrl.startswith(url.rstrip("/") + "/"):
+                from .FactPipeline import reportDocumentUrls
+                documents = reportDocumentUrls(txmyMdl, url)
+                # one document is named plainly; several keep the document-set form, which
+                # reportDocumentUrls expands again when the saved model is reopened
+                url = documents[0] if len(documents) == 1 else entryUrl
             if sourceUrlRewrite is not None:
                 url = sourceUrlRewrite(sn, url) or url
             key = (sn, url)
@@ -509,8 +522,17 @@ def buildDerivedContent(txmyMdl, **kwargs):
     if not (cubeContents or factValues or calculationResults):
         return None
     derived = OrderedDict()
-    if calculationResults:
-        # non-derivable content: its provenance is required, not optional
+    # The rendering that bound fact values were placed on, carried with them from the loaded
+    # document (see carryBoundDerivedContent); a staged copy is named by its staged basename.
+    boundReportSource = getattr(txmyMdl, "_boundReportSource", None)
+    if boundReportSource and any(e.get("basis") == "bound" for e in factValues):
+        reportSource = OrderedDict(boundReportSource)
+        rewrite = kwargs.get("derivedSourceUrlRewrite")
+        if rewrite is not None and reportSource.get("url"):
+            reportSource["url"] = rewrite(reportSource["url"]) or reportSource["url"]
+        derived["reportSource"] = reportSource
+    if calculationResults or any(e.get("basis") == "bound" for e in factValues):
+        # non-derivable content (verdicts, bindings): its provenance is required, not optional
         derived["derivation"] = buildDerivationObject(txmyMdl)
     if factValues:
         derived["factValues"] = factValues

@@ -893,7 +893,7 @@ def _effectiveWeight(txmy, propName, args, ctx) -> FormulaValue:
 
     src, tgt = asQn(args[0].value), asQn(args[1].value)
     wantNetwork = asQn(args[2].value) if len(args) > 2 and args[2].type != FormulaValueType.NONE else None
-    summationQn = mkQn(xbrl, "xbrl:summation-concept")
+    summationQns = (mkQn(xbrl, "xbrl:summation-concept"), mkQn(xbrl, "xbrl:summation-item"))
     weightQn = mkQn(xbrl, "xbrl:weight")
 
     def weightOf(rel):
@@ -922,7 +922,7 @@ def _effectiveWeight(txmy, propName, args, ctx) -> FormulaValue:
 
     results = []
     for nwk in txmy.filterNamedObjects(XbrlNetwork):
-        if nwk.relationshipTypeName != summationQn:
+        if nwk.relationshipTypeName not in summationQns:
             continue
         if wantNetwork is not None and nwk.name != wantNetwork:
             continue

@@ -58,8 +58,10 @@ Usage
             --facts report-html-facts.json --html5 annual-report.html \
             [--into model|derivedContent] [--out-facts report-html5-facts.json]
 
-``--facts`` is the OIM-Taxonomy facts file from ``saveOIMFacts`` (html
-``valueSources``). The PDF must be tagged (marked content) for the text path;
+``--facts`` holds facts with ``xbrl:htmlElementId`` locators: a compiled model saved by
+``--saveOIMmodel`` (best in ``report`` mode, where each fact keeps its value and its locators
+are ``valueAnchors``), or the facts file from ``saveOIMFacts``. A fact keeps its form: the
+locators are rewritten where the fact has them. The PDF must be tagged (marked content) for the text path;
 the image path additionally needs the filing's image files next to the HTML.
 
 Both are also reachable from the plugin command line, as ``--align-to-pdf`` and
@@ -857,13 +859,25 @@ def _derivedFactValue(fv: Dict[str, Any], valueSources: List[Dict[str, Any]],
 # --------------------------------------------------------------------------
 # Driver
 # --------------------------------------------------------------------------
+def _locatorKey(fv) -> str:
+    """The fact value property its locators live on, which is decided by its form.
+
+    A fact value either has no ``value`` and is derived from its ``valueSources``, or carries
+    its ``value`` with ``valueAnchors`` that only locate it (the form a ``report`` mode save
+    writes). Aligning moves a locator to another surface and must not change the form: a
+    Form B fact keeps its filed value, so nothing has to be re-derived from the text of the
+    new surface, which for a PDF is often not parseable as the filed number.
+    """
+    return "valueAnchors" if "value" in fv and fv.get("valueAnchors") else "valueSources"
+
+
 def _collect_fact_html_ids(factsDoc):
     perFactValue: Dict[int, List[str]] = {}
     allIds: Set[str] = set()
     for fact in factsDoc.get("xbrlModel", {}).get("facts", []):
         for fv in fact.get("factValues", []):
             ids: List[str] = []
-            for vs in fv.get("valueSources", []) or []:
+            for vs in fv.get(_locatorKey(fv), []) or []:
                 for p in vs.get("properties", []):
                     if str(p.get("property", "")).endswith("htmlElementId"):
                         v = p.get("value"); ids += v if isinstance(v, list) else [v]
@@ -1616,11 +1630,11 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                 mcs = mcByPageVal.get((page, vnorm))
                 if mcs and len(mcs) == 1:
                     fv["reportSource"] = cSrc
-                    fv["valueSources"] = _content_sources([(page, mcs[0])])
+                    fv[_locatorKey(fv)] = _content_sources([(page, mcs[0])])
                     stats["content"] += 1
                 else:
                     fv["reportSource"] = iSrc
-                    fv["valueSources"] = _bbox_source(page, bbox)
+                    fv[_locatorKey(fv)] = _bbox_source(page, bbox)
                     stats["bbox"] += 1
                 stats["row"] += 1
                 continue
@@ -1640,18 +1654,18 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                         bboxLoc = geom.locate(pms[0][0], mcidText, valueText)
                 if bboxLoc is not None:
                     fv["reportSource"] = iSrc
-                    fv["valueSources"] = _bbox_source(pms[0][0], bboxLoc)
+                    fv[_locatorKey(fv)] = _bbox_source(pms[0][0], bboxLoc)
                     stats["bbox"] += 1
                 else:
                     fv["reportSource"] = cSrc
-                    fv["valueSources"] = _content_sources(pms)
+                    fv[_locatorKey(fv)] = _content_sources(pms)
                     stats["content"] += 1
                 continue
             # 3) phrase-locate (text blocks / addresses the token aligner skipped)
             phit = phraseByFV.get(id(fv))
             if phit:
                 fv["reportSource"] = cSrc
-                fv["valueSources"] = _content_sources(phit)
+                fv[_locatorKey(fv)] = _content_sources(phit)
                 stats["phrase"] += 1
                 stats["content"] += 1
                 continue
@@ -1660,7 +1674,7 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
             if loc is not None:
                 pg, bbox, h = loc
                 fv["reportSource"] = iSrc
-                fv["valueSources"] = _image_source(pg, bbox, h)
+                fv[_locatorKey(fv)] = _image_source(pg, bbox, h)
                 stats["image"] += 1
                 continue
             # not located in the PDF: fall back to the retained html source
@@ -1784,7 +1798,7 @@ def _rewriteHtml5(factsDoc, perFV, runsByFV, tgt, idIndex, targetBasename,
             ]}]
             if into == INTO_MODEL:
                 fv["reportSource"] = tSrc
-                fv["valueSources"] = valueSources
+                fv[_locatorKey(fv)] = valueSources
             else:
                 # fragments concatenate with nothing between them (section 6): the quote is
                 # what a reviewer compares against the fact without re-resolving the pointer.
