@@ -130,7 +130,7 @@ class FormulaGlobalContext:
             matching = [
                 obj for obj in self.txmyMdl.filterNamedObjects(XbrlFact)
                 if (getattr(obj, "_xValid", VALID) >= VALID
-                    and obj.factDimensions.get(conceptDimQn) == conceptQn)
+                    and obj.dimensions.get(conceptDimQn) == conceptQn)
             ]
             self.factCache[conceptQn] = matching
         return self.factCache[conceptQn]

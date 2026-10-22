@@ -180,14 +180,14 @@ class XbrlObject(XbrlModelClass):
                             if label:
                                 propVals.append( ("label", label) )
                             referenceProperties = self.xbrlCompMdl.referenceProperties(val, None)
-                elif propName == "factDimensions" and isinstance(val, dict):
+                elif propName in ("dimensions", "factDimensions") and isinstance(val, dict):
                     for propKey, propVal in val.items():
                         propVals.append( (str(propKey), str(propVal) ) )
                     continue
                 # collectionInfo recognizes both a plain collection (OrderedSet[X]) and an Optional
                 # one (Optional[NonemptySet[X]]) -- the isinstance(propType, GenericAlias) test this
                 # replaces only matched the former, so an Optional collection of objects (a fact's
-                # factValues, a cube's cubeDimensions) fell through to the scalar branch below and
+                # valueSources, a cube's cubeDimensions) fell through to the scalar branch below and
                 # was shown as the collection's Python repr instead of expandable rows.
                 collInfo = collectionInfo(propType)
                 if collInfo is not None: # set, dict, etc

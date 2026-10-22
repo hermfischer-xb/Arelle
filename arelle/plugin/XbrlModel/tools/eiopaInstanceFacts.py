@@ -111,7 +111,7 @@ def prefixFor(ns, nsmap, usedPrefixes):
 
 
 def parseContexts(root, usedPrefixes):
-    """{contextId: factDimensions without the concept}."""
+    """{contextId: fact dimensions without the concept}."""
     contexts = {}
     for ctx in root.iter(f"{{{XBRLI}}}context"):
         dims = {}
@@ -186,16 +186,15 @@ def instanceFacts(instancePath):
         if unitRef and units[unitRef]:
             dims["xbrl:unit"] = units[unitRef]
         name = f"{FOLD_PREFIX}:f{len(facts) + 1}"
-        factValue = {"name": f"{name}_fv"}  # as LoadXbrlXmlFacts names a fact's value
-        fact = {"name": name, "factDimensions": dims, "factValues": [factValue]}
+        fact = {"name": name, "dimensions": dims}
         if elt.get(f"{{{XSI}}}nil") in ("true", "1"):
             fact["properties"] = [{"property": "xbrl:nil", "value": "xbrl:unknownNilReason"}]
         else:
             text = elt.text or ""
-            factValue["value"] = foldQName(text, elt.nsmap) or text  # enumerated values are folded too
+            fact["value"] = foldQName(text, elt.nsmap) or text  # enumerated values are folded too
             decimals = elt.get("decimals")
             if decimals not in (None, "INF"):
-                factValue["decimals"] = int(decimals)
+                fact["decimals"] = int(decimals)
         facts.append(fact)
     return facts, usedPrefixes
 
@@ -213,9 +212,9 @@ def main(argv):
         # a typed dimension's domain class allows a datatype, not member objects: any value will do
         typedClasses = {c["name"] for c in model.get("domainClasses", ()) if c.get("allowedDomainItem") != "xbrl:memberObject"}
         dimensions = {d["name"]: d.get("domainClass") in typedClasses for d in model.get("dimensions", ())}
-        model["facts"] = [f for f in facts if f["factDimensions"]["xbrl:concept"] in concepts
+        model["facts"] = [f for f in facts if f["dimensions"]["xbrl:concept"] in concepts
                           and all(d.startswith("xbrl:") or (d in dimensions and (dimensions[d] or v in members))
-                                  for d, v in f["factDimensions"].items())]
+                                  for d, v in f["dimensions"].items())]
         namespaces = module["documentInfo"].setdefault("namespaces", {})
         for prefix, ns in usedPrefixes.items():
             namespaces.setdefault(prefix, ns)

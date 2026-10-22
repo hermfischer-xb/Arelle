@@ -334,7 +334,7 @@
       {
         "forObject": "oime:misplacedUnitDimension",
         "language": "en",
-        "value": "This error is raised when the xbrl:unit dimension is present in the factDimensions of a fact whose concept has a non-numeric data type. A numeric fact is a fact object with a data type derived from xs:decimal, xs:double, or xs:float. Only numeric facts may carry a unit dimension; non-numeric facts (such as date, string, or boolean facts) MUST NOT include xbrl:unit in their factDimensions.",
+        "value": "This error is raised when the xbrl:unit dimension is present in the dimensions of a fact whose concept has a non-numeric data type. A numeric fact is a fact object with a data type derived from xs:decimal, xs:double, or xs:float. Only numeric facts may carry a unit dimension; non-numeric facts (such as date, string, or boolean facts) MUST NOT include xbrl:unit in their dimensions.",
         "labelType": "xbrl:documentation"
       },
       {
@@ -358,7 +358,7 @@
       {
         "forObject": "oime:missingConceptDimension",
         "language": "en",
-        "value": "Raised when a fact's factDimensions object does not include the required xbrl:concept key. Every fact MUST include xbrl:concept in its factDimensions to identify the concept associated with the fact value.",
+        "value": "Raised when a fact's dimensions object does not include the required xbrl:concept key. Every fact MUST include xbrl:concept in its dimensions to identify the concept associated with the fact value.",
         "labelType": "xbrl:documentation"
       },
       {
@@ -382,7 +382,7 @@
       {
         "forObject": "oime:missingPeriodDimension",
         "language": "en",
-        "value": "Raised when a fact's concept has a periodType of 'duration' or 'instant' but the fact does not include the xbrl:period dimension in its factDimensions. Facts whose concept has periodType 'none' MUST NOT include xbrl:period, but facts with periodType 'duration' or 'instant' MUST always include it.",
+        "value": "Raised when a fact's concept has a periodType of 'duration' or 'instant' but the fact does not include the xbrl:period dimension in its dimensions. Facts whose concept has periodType 'none' MUST NOT include xbrl:period, but facts with periodType 'duration' or 'instant' MUST always include it.",
         "labelType": "xbrl:documentation"
       },
       {
@@ -775,7 +775,7 @@
           },
           {
             "property": "xbrl:conformanceTestDescription",
-            "value": "duplicateFactsInModel 'consistent duplicates'; two values within a single fact's factValues array are inconsistent duplicates (same dimensions, values disagree when rounded to lower precision) and are prohibited."
+            "value": "duplicateFactsInModel 'consistent duplicates'; two of three facts with the same dimensions are inconsistent duplicates (same dimensions, values disagree when rounded to lower precision) and are prohibited."
           },
           {
             "property": "xbrl:specificationErrorURI",
@@ -805,7 +805,7 @@
           },
           {
             "property": "xbrl:conformanceTestDescription",
-            "value": "duplicateFactsInModel 'consistent duplicates'; inconsistent duplicates exist both within a single fact's factValues array and across separate fact objects (including a consistent cross-object duplicate), producing multiple errors."
+            "value": "duplicateFactsInModel 'consistent duplicates'; inconsistent duplicates among four facts with the same dimensions (including a consistent duplicate), producing multiple errors."
           },
           {
             "property": "xbrl:specificationErrorURI",

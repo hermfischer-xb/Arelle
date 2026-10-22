@@ -48,7 +48,7 @@ class FormulaValueType(Enum):
     DOMAIN_NETWORK = auto() # XbrlDomainNetwork
     DOMAIN_CLASS = auto()   # XbrlDomainClass
     CUBE_TYPE = auto()      # XbrlCubeType
-    FACT_VALUE = auto()     # XbrlFactValue
+    FACT_VALUE = auto()     # the value of an XbrlFact (the fact itself carries it)
     MODEL_OBJECT = auto()   # any other named model object
     RELATIONSHIP = auto()   # XbrlRelationship (with navigation context attached)
     RELATIONSHIP_TYPE = auto()  # XbrlRelationshipType
@@ -91,7 +91,7 @@ def alignmentKeyOf(fact: "XbrlFact", conceptDimQn: Optional[QName] = None) -> Al
     Parameters
     ----------
     fact:
-        The XbrlFact object whose `factDimensions` dict will be inspected.
+        The XbrlFact object whose `dimensions` dict will be inspected.
     conceptDimQn:
         QName of the concept dimension (e.g. xbrl:concept).  If None, defaults
         to a well-known value.
@@ -101,7 +101,7 @@ def alignmentKeyOf(fact: "XbrlFact", conceptDimQn: Optional[QName] = None) -> Al
         conceptDimQn = conceptCoreDim
 
     items: List[Tuple[QName, Any]] = []
-    for dimQn, value in fact.factDimensions.items():
+    for dimQn, value in fact.dimensions.items():
         if dimQn == conceptDimQn:
             continue
         # Normalise typed-dimension values to something hashable
@@ -171,12 +171,8 @@ class FormulaValue:
     def fromFact(cls, fact: "XbrlFact", tag: Optional[str] = None,
                  conceptDimQn: Optional[QName] = None) -> "FormulaValue":
         """Wrap an XbrlFact, capturing its primary numeric/string value and alignment key."""
-        # Retrieve the first factValue's value (OIM facts can have multiple values, but
-        # the formula language treats the primary value as the scalar).
-        raw = None
-        if fact.factValues:
-            fv = next(iter(fact.factValues))
-            raw = fv.value
+        # A fact has at most one value, carried by the fact itself.
+        raw = fact.value
         fv_obj = cls(
             type=FormulaValueType.FACT,
             value=fact,
@@ -237,14 +233,14 @@ class FormulaValue:
     def numericValue(self) -> Decimal:
         """Return Decimal representation for arithmetic. Raises TypeError if not numeric."""
         if self.type == FormulaValueType.FACT:
-            # Unwrap to primary fact value
-            if self.value.factValues:
-                fv = next(iter(self.value.factValues))
-                raw = fv.value
+            # Unwrap to the fact's value
+            fact = self.value
+            if fact.value is not None or fact.valueSources:
+                raw = fact.value
                 if raw is None:
                     raise TypeError("Fact value is nil")
                 return Decimal(str(raw))
-            raise TypeError("Fact has no factValues")
+            raise TypeError("Fact has no value")
         if self.type == FormulaValueType.DECIMAL:
             return self.value
         if self.type in (FormulaValueType.INTEGER, FormulaValueType.FLOAT):

@@ -66,7 +66,7 @@ def _wrapSet(items) -> FormulaValue:
 # ---------------------------------------------------------------------------
 
 def _factPropPeriod(fact, args, ctx):
-    dims = fact.factDimensions
+    dims = fact.dimensions
     from arelle.ModelValue import qname as mkQn
     periodQn = mkQn(_xbrlNs(), "period")
     period = dims.get(periodQn)
@@ -75,7 +75,7 @@ def _factPropPeriod(fact, args, ctx):
 def _factPropEntity(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
     entityQn = mkQn(_xbrlNs(), "entity")
-    ev = fact.factDimensions.get(entityQn)
+    ev = fact.dimensions.get(entityQn)
     if ev is None:
         return NONE_VALUE
     # Wrap as ENTITY so .name / .local-name / .namespace-uri chains work.
@@ -84,7 +84,7 @@ def _factPropEntity(fact, args, ctx):
 def _factPropUnit(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
     unitQn = mkQn(_xbrlNs(), "unit")
-    uv = fact.factDimensions.get(unitQn)
+    uv = fact.dimensions.get(unitQn)
     if uv is None:
         return NONE_VALUE
     # Wrap as UNIT_VALUE so .numerator / .denominator chains work.
@@ -93,7 +93,7 @@ def _factPropUnit(fact, args, ctx):
 def _factPropConcept(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
     conceptQn = mkQn(_xbrlNs(), "concept")
-    qn = fact.factDimensions.get(conceptQn)
+    qn = fact.dimensions.get(conceptQn)
     if qn is None:
         return NONE_VALUE
     # Look up the concept in the fact's own model: a rule may query a model
@@ -104,16 +104,13 @@ def _factPropConcept(fact, args, ctx):
     return _wrap(qn, FormulaValueType.QNAME)
 
 def _factPropDimensions(fact, args, ctx):
-    dims = {k: v for k, v in fact.factDimensions.items()}
+    dims = {k: v for k, v in fact.dimensions.items()}
     return FormulaValue(FormulaValueType.DICT, {
         FormulaValue(FormulaValueType.QNAME, k): FormulaValue.fromScalar(v)
         for k, v in dims.items()
     })
 
 def _factPropValue(fact, args, ctx):
-    # A fact may carry several fact value objects -- the same value located in a
-    # table and again in narrative text, or an amended value -- which resolve to
-    # one by the duplicate rules rather than by taking whichever came first.
     from .FormulaDuplicates import effectiveFactValue
     fv = effectiveFactValue(fact)
     if fv is None:
@@ -157,17 +154,17 @@ def _factPropDecimals(fact, args, ctx):
     return _wrap(getattr(fv, "decimals", None)) if fv is not None else NONE_VALUE
 
 def _factPropFactValues(fact, args, ctx):
-    """The fact value objects of a fact, in order.
+    """The fact values of a fact, as a list of `factValue` values.
 
-    A list, and of the objects rather than their values: a fact stating the same
-    total in a table and again in narrative text has two fact value objects with
-    equal values, and a set of values would collapse them -- losing the very
-    thing the property exists to show.
+    Since the fact value object was collapsed into the fact, a fact has at most one value,
+    carried by the fact itself; the list has that one entry, or none for a fact without a
+    value. The property is kept for the language (tavi-formula) until its spec follows the
+    collapse.
     """
-    return FormulaValue(FormulaValueType.LIST, [
-        FormulaValue(FormulaValueType.FACT_VALUE, fv)
-        for fv in (getattr(fact, "factValues", None) or ())
-    ])
+    from .FormulaDuplicates import effectiveFactValue
+    fv = effectiveFactValue(fact)
+    return FormulaValue(FormulaValueType.LIST,
+                        [FormulaValue(FormulaValueType.FACT_VALUE, fv)] if fv is not None else [])
 
 def _factPropName(fact, args, ctx):
     return _wrap(getattr(fact, "name", None), FormulaValueType.QNAME)
@@ -186,7 +183,7 @@ def _factPropDimension(fact, args, ctx):
     dimQn = dimArg.value if dimArg.type == FormulaValueType.QNAME else None
     if dimQn is None:
         raise FormulaRuntimeError("fact.dimension() argument must be a QName")
-    return FormulaValue.fromScalar(fact.factDimensions.get(dimQn))
+    return FormulaValue.fromScalar(fact.dimensions.get(dimQn))
 
 def _factPropIsFact(fact, args, ctx):
     return FormulaValue(FormulaValueType.BOOLEAN, True)
@@ -195,9 +192,6 @@ def _factPropId(fact, args, ctx):
     # Prefer an explicit id attribute on the fact (set during OIM load), else
     # fall back to a stable derived id (the fact's local QName).
     fid = getattr(fact, "id", None)
-    if fid is None:
-        if fact.factValues:
-            fid = getattr(next(iter(fact.factValues)), "id", None)
     if fid is None:
         nm = getattr(fact, "name", None)
         if isinstance(nm, QName):
@@ -213,7 +207,7 @@ def _factPropCubes(fact, args, ctx):
     from arelle.ModelValue import qname as mkQn
     txmy = ctx.txmyMdl
     cubeDimQn = mkQn(_xbrlNs(), "cube")
-    factCubeNames = fact.factDimensions.get(cubeDimQn)
+    factCubeNames = fact.dimensions.get(cubeDimQn)
     cubes = []
     if factCubeNames is not None:
         names = factCubeNames if isinstance(factCubeNames, (list, tuple, set)) else [factCubeNames]
@@ -226,7 +220,7 @@ def _factPropCubes(fact, args, ctx):
         for cube in txmy.filterNamedObjects(XbrlCube):
             cellFacts = getattr(cube, "_cellFacts", None) or {}
             for cellEntries in cellFacts.values():
-                if any(f is fact for f, _ in cellEntries):
+                if any(f is fact for f in cellEntries):
                     cubes.append(cube)
                     break
     return FormulaValue(FormulaValueType.SET, OrderedSet(
@@ -238,7 +232,7 @@ def _factPropAspects(fact, args, ctx):
     coreLocals = ("concept", "period", "entity", "unit", "language")
     coreNs = _xbrlNs()
     aspects = {}
-    for k, v in fact.factDimensions.items():
+    for k, v in fact.dimensions.items():
         if isinstance(k, QName) and k.namespaceURI == coreNs and k.localName in coreLocals:
             aspects[FormulaValue(FormulaValueType.QNAME, k)] = FormulaValue.fromScalar(v)
     return FormulaValue(FormulaValueType.DICT, aspects)
@@ -1163,7 +1157,7 @@ def _cubeProp(cube, propName: str, args, ctx) -> FormulaValue:
         cubeQn = getattr(cube, "name", None)
         facts = [
             f for f in mdl.filterNamedObjects(XbrlFact)
-            if f.factDimensions.get(cubeDimQn) == cubeQn
+            if f.dimensions.get(cubeDimQn) == cubeQn
         ]
         return FormulaValue(FormulaValueType.SET, OrderedSet(
             FormulaValue(FormulaValueType.FACT, f) for f in facts

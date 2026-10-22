@@ -318,10 +318,18 @@ def renderTaggedPdfChrome(htmlPath: str, pdfPath: str, factIds: Set[str],
 # --------------------------------------------------------------------------
 # Facts-file rewrite: html locator -> pdf locator
 # --------------------------------------------------------------------------
+def _valued(fact: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The fact as the carrier of its value -- ``[fact]`` when it has a ``value`` or
+    ``valueSources``, else ``[]``. A fact carries its value and locators itself since the fact
+    value object was collapsed into it; a fact with neither (an undisplayed nil fact) has
+    nothing to locate."""
+    return [fact] if ("value" in fact or fact.get("valueSources")) else []
+
+
 def _collectHtmlIds(factsDoc: Dict[str, Any]) -> Set[str]:
     ids: Set[str] = set()
     for fact in factsDoc.get("xbrlModel", {}).get("facts", []):
-        for fv in fact.get("factValues", []):
+        for fv in _valued(fact):
             for vs in fv.get("valueSources", []):
                 for prop in vs.get("properties", []):
                     if str(prop.get("property", "")).endswith("htmlElementId"):
@@ -367,7 +375,7 @@ def rewriteFacts(
 ) -> Dict[str, int]:
     """Rewrite ``factsDoc`` in place so html-element value sources become
     pdf page+mcid value sources. Returns counters for reporting."""
-    stats = {"rewritten": 0, "unmapped": 0, "factValues": 0}
+    stats = {"rewritten": 0, "unmapped": 0, "located": 0}
 
     # documentInfo.sourceMappings -> point at the PDF
     for mapping in factsDoc.get("documentInfo", {}).get("sourceMappings", []) or []:
@@ -379,12 +387,12 @@ def rewriteFacts(
             fm["factLocatorType"] = PDF_CONTENT_LOCATOR_TYPE
 
     for fact in factsDoc.get("xbrlModel", {}).get("facts", []):
-        for fv in fact.get("factValues", []):
+        for fv in _valued(fact):
             valueSources = fv.get("valueSources")
             if not valueSources:
                 continue
-            stats["factValues"] += 1
-            # gather html ids referenced by this factValue, in order
+            stats["located"] += 1
+            # gather html ids referenced by this fact, in order
             htmlIds: List[str] = []
             for vs in valueSources:
                 for prop in vs.get("properties", []):
@@ -446,7 +454,7 @@ def convert(htmlPath: str, factsPath: str, pdfPath: str,
 
     print("[2/3] rewriting fact valueSources html -> pdf ...", flush=True)
     stats = rewriteFacts(factsDoc, captured, os.path.basename(pdfPath))
-    print(f"      factValues={stats['factValues']} rewritten={stats['rewritten']} "
+    print(f"      located={stats['located']} rewritten={stats['rewritten']} "
           f"unmapped={stats['unmapped']}")
 
     outFactsPath = outFactsPath or (os.path.splitext(pdfPath)[0] + "-pdf-facts.json")

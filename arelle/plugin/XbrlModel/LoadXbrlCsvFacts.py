@@ -5,7 +5,7 @@ xBRL-CSV built-in fact map.
 
 Implements the ``xbrl:xBRL-CSV`` built-in fact map: it loads a standalone
 xBRL-CSV *report* (an xBRL-CSV metadata JSON document plus its companion CSV
-data files) into ``XbrlFact`` / ``XbrlFactValue`` objects, mirroring the
+data files) into ``XbrlFact`` objects, mirroring the
 xBRL-XML ([LoadXbrlXmlFacts.py](LoadXbrlXmlFacts.py)) and xBRL-JSON
 ([LoadOimJsonFacts.py](LoadOimJsonFacts.py)) built-in maps.
 

@@ -326,7 +326,7 @@ Defines the value type system used throughout the interpreter.
 - `AlignmentKey = FrozenSet[Tuple[QName, Any]]` — immutable key for a fact's
   non-concept dimensional context.
 - `alignmentKeyOf(fact, conceptDimQn)` — builds an `AlignmentKey` by
-  collecting all `factDimensions` except the concept dimension.
+  collecting all `dimensions` except the concept dimension.
 - Singletons: `NONE_VALUE`, `SKIP_VALUE`, `TRUE_VALUE`, `FALSE_VALUE`.
 - Exceptions: `FormulaRuntimeError`, `FormulaAlignmentError`,
   `FormulaIterationStop`, `FormulaSkip`.

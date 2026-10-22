@@ -288,7 +288,6 @@ objectsWithProperties = {
     qnXbrlEntityObj,
     qname(xbrl, "xbrl:factObject"),
     qname(xbrl, "xbrl:factValueSourceObject"),
-    qname(xbrl, "xbrl:factValueAnchorObject"),
     qname(xbrl, "xbrl:groupObject"),
     qname(xbrl, "xbrl:networkObject"),
     qnXbrlLabelObj,

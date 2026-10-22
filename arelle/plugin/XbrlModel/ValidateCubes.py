@@ -99,7 +99,7 @@ def matchFactToCube(compMdl, factspace, cubeObj):
         dimName = cubeDimObj.dimension
         if dimName in coreToFactDim:
             mems = cubeDimObj.allowedMembers(compMdl)
-            factDimVal = factspace.factDimensions.get(dimName)
+            factDimVal = factspace.dimensions.get(dimName)
             # A required core dimension absent from the fact rules out this cube.
             if factDimVal is None and not cubeDimObj.optional:
                 hasDims = False # skip this cube
@@ -125,7 +125,7 @@ def matchFactToCube(compMdl, factspace, cubeObj):
                 hasDims = False # skip this cube
                 break
         elif dimName == periodCoreDim:
-            factPerVal = factspace.factDimensions.get("_periodValue")
+            factPerVal = factspace.dimensions.get("_periodValue")
             if factPerVal is None and not cubeDimObj.optional:
                 hasDims = False # period required but fact has no period (e.g. periodType:none concept)
                 break
@@ -134,7 +134,7 @@ def matchFactToCube(compMdl, factspace, cubeObj):
             # oimte:noFactSpaceForFact. Membership is applied by factMatchesPeriodConstraints
             # (below), called where facts are recorded in the cube's cells.
             continue
-        elif dimName not in factspace.factDimensions:
+        elif dimName not in factspace.dimensions:
             if not cubeDimObj.optional:
                 hasDims = False # skip this cube
                 break
@@ -142,7 +142,7 @@ def matchFactToCube(compMdl, factspace, cubeObj):
             dimObj = compMdl.namedObjects.get(dimName)
             isTyped = bool(cubeDimObj.domainDataType)
             if not isTyped:
-                dimMbrQn = qname(factspace.factDimensions.get(dimName), factspace.module._prefixNamespaces)
+                dimMbrQn = qname(factspace.dimensions.get(dimName), factspace.module._prefixNamespaces)
             mems = cubeDimObj.allowedMembers(compMdl)
             # Empty mems means no domainNetwork is set on this cube dimension:
             # the cube imposes no member restriction, so any member value is accepted.
@@ -167,7 +167,7 @@ def validateCubes(compMdl, factspace):
     if getattr(compMdl, "_useVectorCubeSearch", False):
         return _validateCubesVectorSearch(compMdl, factspace)
     conceptToCubes, openCubes = _cubeConceptCandidateIndex(compMdl)
-    conceptQn = (factspace.factDimensions or {}).get(conceptCoreDim)
+    conceptQn = (factspace.dimensions or {}).get(conceptCoreDim)
     if isinstance(conceptQn, str) and ":" in conceptQn:
         conceptQn = qname(conceptQn, factspace.module._prefixNamespaces)
     candidates = []
@@ -215,7 +215,7 @@ def _validateCubesVectorSearch(compMdl, factspace):
     """Vector-search candidate generation (compMdl._useVectorCubeSearch): find likely cubes by
        embedding similarity, then verify with matchFactToCube. Retained for comparison; the exact
        concept index in validateCubes is the default (faster and does not miss cubes)."""
-    cubeFitQuery = [(dimQn, value) for dimQn,value in factspace.factDimensions.items() if isinstance(dimQn, QName)]
+    cubeFitQuery = [(dimQn, value) for dimQn,value in factspace.dimensions.items() if isinstance(dimQn, QName)]
     try:
         results = searchXbrl(compMdl, cubeFitQuery, SEARCH_CUBES, 50) # allow sufficient return scores
     except (ValueError, KeyError):
@@ -334,13 +334,14 @@ def validateCubeDuplicates(compMdl, cubeObj):
         else:
             # Compare every pair against the policy.
             for i in range(len(entries)):
-                _f1, fv1 = entries[i]
-                v1 = getattr(fv1, "value", None)
-                d1 = getattr(fv1, "decimals", None)
+                f1 = entries[i]
+                # a nil fact is in its cell with no value
+                v1 = None if f1.isNil else f1.value
+                d1 = None if f1.isNil else f1.decimals
                 for j in range(i + 1, len(entries)):
-                    _f2, fv2 = entries[j]
-                    v2 = getattr(fv2, "value", None)
-                    d2 = getattr(fv2, "decimals", None)
+                    f2 = entries[j]
+                    v2 = None if f2.isNil else f2.value
+                    d2 = None if f2.isNil else f2.decimals
                     if policy == "complete duplicates":
                         # Require value AND decimals match
                         if v1 != v2 or d1 != d2:
@@ -355,7 +356,7 @@ def validateCubeDuplicates(compMdl, cubeObj):
                 if violates:
                     break
         if violates:
-            factNames = sorted({getattr(f, "name", None) for f, _fv in entries})
+            factNames = sorted({getattr(f, "name", None) for f in entries})
             compMdl.error(
                 "oime:disallowedDuplicateFacts",
                 _("Cube %(cube)s with duplicateFacts policy '%(policy)s' has prohibited "
@@ -472,7 +473,7 @@ def _periodConstraintMatches(compMdl, perConstObj, period, fact) -> bool:
         if _addDuration(period.startPoint, perConstObj.timeSpan) != period.endPoint:
             return False
     # periodPattern matches the lexical period (XbrlPeriodConstraint.periodPatternMatch)
-    if perConstObj.periodPattern and perConstObj.periodPatternMatch(fact.factDimensions.get(periodCoreDim)) is False:
+    if perConstObj.periodPattern and perConstObj.periodPatternMatch(fact.dimensions.get(periodCoreDim)) is False:
         return False
     # endDate: a duration's end, an instant's date; startDate: a duration's start, an instant's date
     # onOrAfter: an instant's date, a duration's start; onOrBefore: an instant's date, a duration's end
@@ -508,11 +509,10 @@ def resolveDateResolution(compMdl, dateResObj):
     days = set()
     if dateResObj.conceptName is not None:
         for fact in _factsOfConcept(compMdl, dateResObj.conceptName):
-            for fv in fact.factValues or ():
-                # the lexical value (a date names its day); the typed value if no lexical one is kept
-                day = _valueDay(fv.value if fv.value is not None else getattr(fv, "_xValue", None))
-                if day is not None:
-                    days.add(day)
+            # the lexical value (a date names its day); the typed value if no lexical one is kept
+            day = _valueDay(fact.value if fact.value is not None else getattr(fact, "_xValue", None))
+            if day is not None:
+                days.add(day)
     elif dateResObj.context is not None:
         atStart = getattr(dateResObj.context, "atSuffix", "end") == "start"
         for fact in _factsOfConcept(compMdl, dateResObj.context):
@@ -539,7 +539,7 @@ def _factsOfConcept(compMdl, conceptQn):
     if index is None:
         index = compMdl._factsByConceptCache = {}
         for fact in compMdl.filterNamedObjects(XbrlFact):
-            qn = (fact.factDimensions or {}).get(conceptCoreDim)
+            qn = (fact.dimensions or {}).get(conceptCoreDim)
             if isinstance(qn, str) and ":" in qn:
                 qn = qname(qn, fact.module._prefixNamespaces)
             if qn is not None:
@@ -549,7 +549,7 @@ def _factsOfConcept(compMdl, conceptQn):
 
 def _factPeriod(fact):
     """The fact's period as a _Period, from its period dimension's lexical value."""
-    perStr = fact.factDimensions.get(periodCoreDim)
+    perStr = fact.dimensions.get(periodCoreDim)
     return _parsePeriod(perStr) if perStr is not None else None
 
 

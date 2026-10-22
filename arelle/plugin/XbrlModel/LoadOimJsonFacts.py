@@ -5,7 +5,7 @@ OIM-JSON (xBRL-JSON) built-in fact map.
 
 Implements the ``xbrl:OIM-JSON`` built-in fact map defined in the OIM Taxonomy
 specification ("OIM JSON fact map" section). It maps the facts of an xBRL-JSON
-report document into ``XbrlFact`` / ``XbrlFactValue`` objects, and facts whose
+report document into ``XbrlFact`` objects, and facts whose
 ``dimensions.concept`` is ``xbrl:note`` into ``XbrlFootnote`` objects.
 
 There are no conformance tests exercising this map yet, so this is a best-effort
@@ -26,7 +26,7 @@ from .XbrlConst import xbrl as xbrlNs
 from .XbrlConcept import XbrlConcept
 from .XbrlCube import (conceptCoreDim, periodCoreDim, entityCoreDim,
                        unitCoreDim, languageCoreDim)
-from .XbrlFact import XbrlFact, XbrlFactValue, XbrlFootnote
+from .XbrlFact import XbrlFact, XbrlFootnote
 from .XbrlProperty import XbrlProperty
 from .LoadFactsCommon import qnNil, qnUnknownNilReason
 
@@ -151,40 +151,34 @@ def parseOimJsonFacts(compMdl, module, factSource, url):
         fact.parent = module
         fact.name = SQName(factPrefix, factNs, factId)
         fact.extends = None
-        fact.factQualifier = None
-        fact.factDimensions = {}
+        fact.qualifier = None
+        fact.dimensions = {}
         fact.properties = None
         for dimName, dimVal in dimensions.items():
             if dimName in _coreByJsonName:
                 coreQn = _coreByJsonName[dimName]
                 if dimName == "concept":  # migrated like the concept above; entity/unit are not redirected
-                    fact.factDimensions[coreQn] = redirect(qname(dimVal, docNamespaces)) or dimVal
+                    fact.dimensions[coreQn] = redirect(qname(dimVal, docNamespaces)) or dimVal
                 elif dimName in ("entity", "unit"):
-                    fact.factDimensions[coreQn] = qname(dimVal, docNamespaces) or dimVal
+                    fact.dimensions[coreQn] = qname(dimVal, docNamespaces) or dimVal
                 else:
-                    fact.factDimensions[coreQn] = dimVal
+                    fact.dimensions[coreQn] = dimVal
             else:  # taxonomy-defined dimension, mapped directly
                 dQn = qname(dimName, docNamespaces)
                 if dQn is not None:
                     memQn = qname(dimVal, docNamespaces) if isinstance(dimVal, str) and ':' in dimVal else dimVal
-                    fact.factDimensions[redirect(dQn)] = redirect(memQn) if isinstance(memQn, QName) else memQn
+                    fact.dimensions[redirect(dQn)] = redirect(memQn) if isinstance(memQn, QName) else memQn
 
-        fv = XbrlFactValue()
-        fv.fact = fact
-        fv.name = SQName(factPrefix, factNs, f"{factId}_fv")
-        fv.value = factObj.get("value")
-        fv.decimals = factObj.get("decimals")
-        fv.language = dimensions.get("language")
-        fv.valueSources = None
-        fv.valueAnchors = None
+        fact.value = factObj.get("value")
+        fact.decimals = factObj.get("decimals")
+        fact.language = dimensions.get("language")
         # An xBRL-JSON nil fact has value: null; mark it with the xbrl:nil property so it is recognised
         # as nil (matching native-OIM facts and the xBRL-XML / inline loaders).
-        if fv.value is None:
+        if fact.value is None:
             nilProp = XbrlProperty()
             nilProp.property = qnNil
             nilProp.value = qnUnknownNilReason
             fact.properties = [nilProp]
-        fact.factValues = [fv]
         facts.append(fact)
 
     return facts, footnotes

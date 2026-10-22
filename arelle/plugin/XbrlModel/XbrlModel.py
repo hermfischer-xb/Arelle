@@ -262,7 +262,7 @@ class XbrlCompiledModel(ModelXbrl): # complete wrapper for ModelXbrl
     #   XbrlCube                         – merges cubeNetworks, excludeCubes,
     #                                      requiredCubes, properties
     #   XbrlReference                    – merges forObjects
-    #   XbrlFact                         – merges factValues, properties
+    #   XbrlFact                         – merges value, properties
     #   XbrlMember                       – merges properties
     #   XbrlTableTemplate               – merges columns
     #

@@ -41,8 +41,7 @@
                 "dataType": "xbrlx:textSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject",
-                    "xbrl:factValueAnchorObject"
+                    "xbrl:factValueSourceObject"
                 ]
             },
             {
@@ -50,8 +49,7 @@
                 "dataType": "xbrlx:textSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject",
-                    "xbrl:factValueAnchorObject"
+                    "xbrl:factValueSourceObject"
                 ]
             },
             {
@@ -59,8 +57,7 @@
                 "dataType": "xbrlx:textOffsetSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject",
-                    "xbrl:factValueAnchorObject"
+                    "xbrl:factValueSourceObject"
                 ]
             },
             {
@@ -68,8 +65,7 @@
                 "dataType": "xbrlx:textOffsetSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject",
-                    "xbrl:factValueAnchorObject"
+                    "xbrl:factValueSourceObject"
                 ]
             },
             {
@@ -77,8 +73,7 @@
                 "dataType": "xbrlx:textSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject",
-                    "xbrl:factValueAnchorObject"
+                    "xbrl:factValueSourceObject"
                 ]
             }
         ],

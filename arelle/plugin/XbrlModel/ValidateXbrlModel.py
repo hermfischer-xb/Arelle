@@ -86,9 +86,9 @@ def validateRefDimensions(compMdl, module):
                           xbrlObject=(ntwkObj, relObj), src=relObj.source, tgt=targetDim, cube=refCubeQn)
                 continue
             sourceConcept = relObj.source
-            srcFactValues = []  # (fact, factValue.value) for facts of the source concept
+            srcFactValues = []  # (fact, fact.value) for facts of the source concept
             for fact in module.facts or ():
-                fd = getattr(fact, "factDimensions", None)
+                fd = fact.dimensions
                 if not fd:
                     continue
                 cQn = fd.get(conceptCoreDim)
@@ -96,12 +96,12 @@ def validateRefDimensions(compMdl, module):
                     cQn = qname(cQn, prefixNs)
                 if cQn != sourceConcept:
                     continue
-                for fv in getattr(fact, "factValues", None) or ():
-                    srcFactValues.append((fact, getattr(fv, "value", None)))
+                if fact.value is not None or fact.valueSources:
+                    srcFactValues.append((fact, fact.value))
             if bool(refCubeDim.domainDataType):  # typed reference dimension
                 refTypedValues = set()
                 for fact in module.facts or ():
-                    fd = getattr(fact, "factDimensions", None)
+                    fd = fact.dimensions
                     if fd and targetDim in fd and matchFactToCube(compMdl, fact, refCube):
                         refTypedValues.add(fd.get(targetDim))
                 for fact, val in srcFactValues:
@@ -119,22 +119,22 @@ def validateRefDimensions(compMdl, module):
                                   xbrlObject=(ntwkObj, relObj, fact), src=sourceConcept, val=val, tgt=targetDim, cube=refCubeQn)
 
 def validateFactQualifiers(compMdl, module):
-    """Validate factQualifier objects (oim-taxonomy.md §factQualifier object):
-       (1) a dimension named in a fact's factQualifier MUST NOT also appear in that fact's factDimensions
+    """Validate fact qualifier objects (tavi.md "Fact qualifier object"):
+       (1) a dimension named in a fact's qualifier MUST NOT also appear in that fact's dimensions
            (oimte:invalidFactQualifierDimensionMember); and
-       (2) facts whose effective dimensions (factDimensions merged with factQualifier) coincide MUST report
+       (2) facts whose effective dimensions (dimensions merged with qualifier) coincide MUST report
            the same value where at least one participates via a factQualifier (oimte:factInconsistentWithFactQualifier)."""
     byEffKey = defaultdict(list)  # effective-dimension key -> list of (fact, frozenset(values), hasQualifier)
     for fact in module.facts or ():
-        factDims = getattr(fact, "factDimensions", None)
+        factDims = fact.dimensions
         if not factDims:
             continue
-        factQual = getattr(fact, "factQualifier", None)
+        factQual = fact.qualifier
         if factQual:
             overlap = set(factQual) & set(factDims)
             if overlap:
                 compMdl.error("oimte:invalidFactQualifierDimensionMember",
-                          _("The fact %(name)s defines dimension(s) %(dims)s in both its factDimensions and factQualifier."),
+                          _("The fact %(name)s defines dimension(s) %(dims)s in both its dimensions and qualifier."),
                           xbrlObject=fact, name=getattr(fact, "name", None),
                           dims=", ".join(sorted(str(d) for d in overlap)))
         eff = dict(factDims)
@@ -143,19 +143,19 @@ def validateFactQualifiers(compMdl, module):
         # internal helper keys (e.g. _periodValue) are derived from real dimensions and identical across
         # facts with the same period, so exclude them to compare on the declared dimensional pairs only
         effKey = frozenset((str(k), str(v)) for k, v in eff.items() if not str(k).startswith("_"))
-        vals = frozenset(str(getattr(fv, "value", None)) for fv in getattr(fact, "factValues", None) or ())
+        vals = frozenset((str(fact.value),)) if (fact.value is not None or fact.valueSources) else frozenset()
         byEffKey[effKey].append((fact, vals, bool(factQual)))
     for effKey, entries in byEffKey.items():
         if len(entries) < 2:
             continue
         if not any(hasQual for _f, _v, hasQual in entries):
-            continue  # not a factQualifier consistency case (plain duplicates handled elsewhere)
+            continue  # not a fact qualifier consistency case (plain duplicates handled elsewhere)
         allValues = set()
         for _f, vals, _hq in entries:
             allValues |= vals
         if len(allValues) > 1:
             compMdl.error("oimte:factInconsistentWithFactQualifier",
-                      _("Facts %(names)s share the same effective dimensions (via factQualifier) but report conflicting values %(values)s."),
+                      _("Facts %(names)s share the same effective dimensions (via qualifier) but report conflicting values %(values)s."),
                       xbrlObject=[f for f, _v, _hq in entries],
                       names=", ".join(str(getattr(f, "name", None)) for f, _v, _hq in entries),
                       values=", ".join(sorted(allValues)))
@@ -2095,7 +2095,7 @@ def validateCompletedModel(compMdl):
                 if score < 0.2:  # arbitrary, what should this be?
                     break
                 if isinstance(f, XbrlFact):
-                    conceptQn = f.factDimensions.get(conceptCoreDim)
+                    conceptQn = f.dimensions.get(conceptCoreDim)
                     if conceptQn in compMdl.dateResolutionConceptNames:
                         validateFactPosition(compMdl, f)
                         compMdl.dateResolutionConceptFacts[conceptQn].append(f)

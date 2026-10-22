@@ -112,23 +112,22 @@ def _isTruncation(compMdl):
 
 
 def _truncationOf(compMdl, modelTruncate):
-    """A function giving the rounding mode of one fact value, as a truncation flag.
+    """A function giving the rounding mode of one fact, as a truncation flag.
 
-    A fact value may declare its own xbrl:roundingMode, so that a report can carry statements of
+    A fact may declare its own xbrl:roundingMode, so that a report can carry statements of
     both conventions -- in EDINET, parent-only statements truncated beside consolidated statements
     rounded. Where it declares none, the model's mode applies. A run time override, being an
     override of what the model says, replaces both.
 
-    The fact value carries it as its own roundingMode attribute, as decimals is carried; the
-    xbrl:roundingMode propertyType in core.json is the model object's mechanism, and a fact value
-    object is not among the objects that carry property objects.
+    The fact carries it as its own roundingMode attribute, as decimals is carried; the
+    xbrl:roundingMode propertyType in core.json is the model object's mechanism.
     """
     override = getattr(compMdl, "calcRoundingModeOverride", None)
 
-    def truncationOf(fv):
+    def truncationOf(fact):
         if override is not None:
             return override == "truncation"
-        declared = getattr(fv, "roundingMode", None)
+        declared = getattr(fact, "roundingMode", None)
         if declared is None:
             return modelTruncate
         return str(declared) == "truncation"
@@ -137,24 +136,25 @@ def _truncationOf(compMdl, modelTruncate):
 
 
 def _factValueInterval(bucket, truncationOf):
-    """Interval for one reported data point, over its duplicate fact values.
+    """Interval for one reported data point, over its duplicate facts.
 
-    truncationOf gives the rounding mode of each fact value, so a data point whose duplicates
+    truncationOf gives the rounding mode of each fact, so a data point whose duplicates
     were reported under different conventions is intersected over the interval each implies.
 
     Implements sections 7.1, 7.4 and 7.5. Returns (status, interval) where status is None
     when the interval is usable, and otherwise "nil", "nonNumeric", "excessDigits" or
     "inconsistentDuplicates". The interval is the intersection over consistent duplicates.
     """
-    values = [(fv, getattr(fv, "value", None), getattr(fv, "decimals", None)) for _f, fv in bucket]
-    if all(v is None for _fv, v, _d in values):
+    # a nil fact is in its cell with no value
+    values = [(f, None if f.isNil else f.value, None if f.isNil else f.decimals) for f in bucket]
+    if all(v is None for _f, v, _d in values):
         return "nil", None  # all nil: consistent, but ignored for binding
-    if any(v is None for _fv, v, _d in values):
+    if any(v is None for _f, v, _d in values):
         return "inconsistentDuplicates", None  # mixing nil and non-nil is inconsistent
     lo = hi = None
     loIncl = hiIncl = False
     byDecimals = {}
-    for _fv, value, decimals in values:
+    for _f, value, decimals in values:
         dec = "INF" if decimals is None else decimals
         # A fact whose value is not a number can reach a numeric binding -- an inline fact
         # whose transformation failed keeps its raw text, for instance -- and rangeValue then
@@ -164,7 +164,7 @@ def _factValueInterval(bucket, truncationOf):
         try:
             if insignificantDigits(value, decimals=dec):
                 return "excessDigits", None
-            _lo, _hi, _loIncl, _hiIncl = rangeValue(value, dec, truncate=truncationOf(_fv))
+            _lo, _hi, _loIncl, _hiIncl = rangeValue(value, dec, truncate=truncationOf(_f))
         except (InvalidOperation, ValueError, TypeError, ArithmeticError):
             return "nonNumeric", None
         if not (_lo.is_finite() and _hi.is_finite()):
@@ -275,7 +275,7 @@ def _recordResult(compMdl, cubeObj, ntwkObj, totalQn, alignKey, consistent,
     and absence must not be readable as either outcome.
 
     Values are stored raw; SaveModel formats them, so that the unit tuple validation leaves in
-    factDimensions is rendered by the one function that knows how.
+    the fact's dimensions is rendered by the one function that knows how.
     """
     results = getattr(compMdl, "_calculationResults", None)
     if results is None:

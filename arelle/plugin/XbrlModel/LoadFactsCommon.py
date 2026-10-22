@@ -315,7 +315,7 @@ def factIdentity(module, factSource):
 
     ``factPrefix`` / ``factNs`` are the namespace prefix (from
     ``factSource.factIdentifierNamespacePrefix``, else the module's namespace) and
-    its URI used for generated fact / factValue / footnote QNames. ``redirect`` is a
+    its URI used for generated fact / footnote QNames. ``redirect`` is a
     QName -> QName function applying the fact source's ``namespaceMaps`` (an entry
     with no ``fromNamespacePrefix`` remaps every source namespace to its
     ``toNamespacePrefix`` namespace). Call after ``mergeInstanceNamespaces`` so the

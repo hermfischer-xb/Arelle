@@ -44,10 +44,10 @@ formula parameter ``oimSaveMode`` (default ``full``):
                   concern in COMPILED_MODEL_SERIALIZATION_SCOPE.md. The closure is computed by
                   PruneModel.pruneClosure(); PruneModel.pruneSkip() classifies each object.
   * ``report`` -- prune closure + viewer-tailored facts + presentation networks (decision 4a).
-                  Each factValue is rewritten to the single-source-of-truth Form B: a pre-computed
+                  Each fact is rewritten to the single-source-of-truth Form B: a pre-computed
                   ``value`` (resolved from the source document via FactValueResolver when only
-                  ``valueSources`` were present) plus ``valueAnchors`` carrying the locators, with
-                  ``valueSources`` dropped. Both ixbrl-viewer and SEC ixviewer-plus read a
+                  ``valueSources`` were present) beside its ``valueSources``, which with a value
+                  present only locate it. Both ixbrl-viewer and SEC ixviewer-plus read a
                   pre-computed value, so this is the pragmatic viewer form. Networks/groups/headings
                   touching retained concepts, and cubes whose concept-domain lists a retained
                   concept, are re-included (pruneClosure includeNetworks) so the viewer can navigate
@@ -202,8 +202,8 @@ def carryBoundDerivedContent(compMdl, derivedContent, documentUrl):
     """
     bound = []
     for entry in derivedContent.get("factValues") or ():
-        if isinstance(entry, dict) and entry.get("basis") == "bound" and entry.get("factValueName"):
-            bound.append({"factValueName": entry["factValueName"],
+        if isinstance(entry, dict) and entry.get("basis") == "bound" and entry.get("factName"):
+            bound.append({"factName": entry["factName"],
                           "value": entry.get("value"),
                           "sourceText": entry.get("sourceText"),
                           "sources": entry.get("valueSources")})

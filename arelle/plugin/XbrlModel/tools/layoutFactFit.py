@@ -88,9 +88,9 @@ def fitTable(table, facts):
             cellValues[d].add(v)
     placed, rows, multi = {}, set(), 0
     why = Counter()
-    candidates = [f for f in facts if f["factDimensions"].get("xbrl:concept") in tableConcepts]
+    candidates = [f for f in facts if f["dimensions"].get("xbrl:concept") in tableConcepts]
     for fact in candidates:
-        fd = fact["factDimensions"]
+        fd = fact["dimensions"]
         hits = [c for c in cells
                 if all(fd.get(d) == v for d, v in c[3].items())
                 and all(d in c[3] or d in CORE_DIMENSIONS or d in keyDims or d in zGroupDims for d in fd)]

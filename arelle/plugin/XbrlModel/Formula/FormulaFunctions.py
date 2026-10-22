@@ -649,10 +649,8 @@ def _fn_string(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaVa
         raise FormulaRuntimeError("string() requires an argument")
     arg = args[0]
     if arg.type == FormulaValueType.FACT:
-        if arg.value.factValues:
-            val = next(iter(arg.value.factValues)).value
-            return FormulaValue(FormulaValueType.STRING, "" if val is None else str(val))
-        return FormulaValue(FormulaValueType.STRING, "")
+        val = arg.value.value
+        return FormulaValue(FormulaValueType.STRING, "" if val is None else str(val))
     if arg.type == FormulaValueType.INTEGER:
         return FormulaValue(FormulaValueType.STRING, format(int(arg.value), ",d"))
     if arg.type in (FormulaValueType.FLOAT, FormulaValueType.DECIMAL):

@@ -1,7 +1,7 @@
 """
 LoadInlineFacts.py -- built-in ``xbrl:inline-XBRL-1.1`` fact map (SKELETON / POC).
 
-Materializes OIM ``XbrlFact`` / ``XbrlFactValue`` / ``XbrlFootnote`` objects from an
+Materializes OIM ``XbrlFact`` / ``XbrlFootnote`` objects from an
 Inline XBRL 1.1 report (or IXDS document set) referenced by a ``factSource`` whose
 ``factMapName`` is ``xbrl:inline-XBRL-1.1``.
 
@@ -34,24 +34,24 @@ Design (see the session design notes / project memory ``project-factmap`` and
   and does NOT bake in the transformed value. The transformed value is *derived*
   content: it belongs in a ``derivedContent`` derived-fact object that extends this
   model fact (emitted at save time by ``SaveModel``), not in the model fact itself.
-    - Value source: ``fv.valueSources`` carries an ``xbrl:htmlElementId`` property =
+    - Value source: ``fact.valueSources`` carries an ``xbrl:htmlElementId`` property =
       the ix element's ``@id`` (the point of truth), together with the fact's
       ``transformation`` (= ``imf.format``), ``scale``, ``sign`` and ``escape`` -- so
       the value is *re-derivable* from the document by ``FactValueResolver`` (read the
       element text, apply the transform, then scale and sign), which is exactly what
       makes it derivable, non-authoritative, published content rather than model data.
-      ``fv.value`` is left absent. Multi-document IXDS binds ``fv.reportSource`` to a
+      ``fact.value`` is left absent. Multi-document IXDS binds ``fact.reportSource`` to a
       per-document sourceMapping QName; the single-document default leaves it None.
     - No durable ``@id``: a fact whose ix element has no ``@id`` has no locator to
-      re-derive from, so it keeps its literal (already ix-transformed) ``fv.value`` and
+      re-derive from, so it keeps its literal (already ix-transformed) ``fact.value`` and
       is carried as an ordinary model fact (no valueSources).
-    - Nil facts carry the ``xbrl:nil`` property. A displayed nil fact also keeps a fact value
-      that only locates it: valueSources on where it is displayed (its own element, or the
-      element showing it through a hidden-style property) and ``xbrltt:fixed-empty`` as its
-      transformation, so the displayed text -- often the row label -- is never read as a value.
-      An undisplayed nil fact has no fact value.
+    - Nil facts carry the ``xbrl:nil`` property. A displayed nil fact also keeps valueSources
+      that only locate it, on where it is displayed (its own element, or the element showing it
+      through a hidden-style property); on a nil fact value sources never supply a value, so the
+      displayed text -- often the row label -- is never read as one. An undisplayed nil fact has
+      no value sources.
     - Hidden facts (tavi-import, "Hidden facts"): a fact in ``ix:hidden`` is not
-      displayed, so it carries its literal ``fv.value`` and NO valueSources -- a value
+      displayed, so it carries its literal ``fact.value`` and NO valueSources -- a value
       source tells a viewer there is displayed text behind the fact. The exception is a
       hidden fact a displayed element refers to through a hidden-style property
       (``-sec-ix-hidden``, ``-esef-ix-hidden``, ``-ix-hidden``): it is a displayed fact,
@@ -68,7 +68,7 @@ per-fact source binding are stubbed. Non-default targets need a target discrimin
 on the factSource/sourceMapping -- deferred, see the HF note in ``oim-taxonomy.md``
 under "Inline XBRL 1.1 fact map". ``TODO`` markers flag the parts still to fill in.
 
-NOTE (wiring): a factValue with ``valueSources`` requires the factMap to define a
+NOTE (wiring): a fact with ``valueSources`` requires the factMap to define a
 ``factLocatorType`` (oim-taxonomy.md, oimte:factValueLocatorRequiredForValueSources).
 The built-in ``xbrl:inline-XBRL-1.1`` factMap is registered in resources/core.json
 with ``factLocatorType: xbrl:xhtmlElementLocatorType`` (whose locator property
@@ -89,7 +89,7 @@ from .ModelValueMore import SQName
 from .XbrlConst import xbrl as xbrlNs
 from .XbrlConcept import XbrlConcept
 from .XbrlCube import conceptCoreDim, periodCoreDim, entityCoreDim, unitCoreDim, languageCoreDim
-from .XbrlFact import XbrlFact, XbrlFactValue, XbrlFactValueSource
+from .XbrlFact import XbrlFact, XbrlFactValueSource
 from .XbrlProperty import XbrlProperty
 from .LoadFactsCommon import (
     XMLNS, clark, inheritedLang, oimContextDimensions, oimUnit,
@@ -99,7 +99,7 @@ from .LoadFactsCommon import (
 # grep marker for the POC scaffolding (mirrors POC-LEGACY-DTS in LoadLegacyTaxonomy)
 # ==== BEGIN POC-INLINE =====================================================
 
-#: Locator property QName written into each factValue's valueSources. This is the
+#: Locator property QName written into each fact's valueSources. This is the
 #: spec-defined html-element-id property required by the built-in
 #: xbrl:xhtmlElementLocatorType, which the built-in inline factMaps
 #: references as its factLocatorType (see resources/core.json).
@@ -109,7 +109,6 @@ qnHtmlElementId = QName("xbrl", xbrlNs, "htmlElementId")
 qnHtmlElementPointer = QName("xbrl", xbrlNs, "htmlElementPointer")
 
 #: The transformation of a displayed nil fact's fact value: its displayed text yields no value.
-qnFixedEmpty = QName("xbrltt", xbrlNs + "/transform-types", "fixed-empty")
 
 #: ix:hidden in Inline XBRL 1.0 and 1.1.
 _IX_HIDDEN_TAGS = frozenset((
@@ -148,7 +147,7 @@ def parseInlineFacts(compMdl, module, factSource, url):
         # 3. Namespace prefix + namespaceMaps redirect (shared with LoadXbrlXmlFacts).
         factPrefix, factNs, redirect = factIdentity(module, factSource)
 
-        # 4. Transform each ModelInlineFact -> XbrlFact / XbrlFactValue.
+        # 4. Transform each ModelInlineFact -> XbrlFact.
         hiddenDisplays = _hiddenFactDisplays(inlineMx)
         position = 0
         for imf in _iterTargetFacts(inlineMx):
@@ -350,7 +349,7 @@ def _iterTargetFacts(inlineMx):
 
 def _emitFact(compMdl, module, imf, conceptQn, conceptObj,
               factPrefix, factNs, redirect, position, hiddenDisplays=None):
-    """Build one XbrlFact + XbrlFactValue from a ModelInlineFact.
+    """Build one XbrlFact from a ModelInlineFact.
 
     ``imf`` is a ModelInlineFact (subclass of ModelFact AND ModelObject): it exposes
     the standard fact API -- ``.qname``, ``.context`` (ModelContext), ``.unit``
@@ -365,8 +364,8 @@ def _emitFact(compMdl, module, imf, conceptQn, conceptObj,
     fact.parent = module
     fact.name = SQName(factPrefix, factNs, localName)
     fact.extends = None
-    fact.factQualifier = None
-    fact.factDimensions = {conceptCoreDim: conceptQn}
+    fact.qualifier = None
+    fact.dimensions = {conceptCoreDim: conceptQn}
     fact.properties = None
 
     # entity / period / explicit + typed dimensions -- imf.context wraps the same
@@ -375,103 +374,94 @@ def _emitFact(compMdl, module, imf, conceptQn, conceptObj,
     if ctxElt is not None:
         entityQn, oimPer, dims = oimContextDimensions(ctxElt)
         if entityQn is not None:
-            fact.factDimensions[entityCoreDim] = entityQn
+            fact.dimensions[entityCoreDim] = entityQn
         if oimPer is not None:
-            fact.factDimensions[periodCoreDim] = oimPer
+            fact.dimensions[periodCoreDim] = oimPer
         for dQn, dVal in dims.items():
-            fact.factDimensions[redirect(dQn)] = redirect(dVal) if isinstance(dVal, QName) else dVal
+            fact.dimensions[redirect(dQn)] = redirect(dVal) if isinstance(dVal, QName) else dVal
 
     isNumeric = conceptObj.isNumeric(compMdl)
     unitElt = imf.unit
     if unitElt is not None:
         uStr = oimUnit(unitElt, module)
         if uStr is not None:
-            fact.factDimensions[unitCoreDim] = uStr
+            fact.dimensions[unitCoreDim] = uStr
 
     lang = imf.get(clark(XMLNS, "lang")) or inheritedLang(imf)
     isText = conceptObj.isOimTextFactType(compMdl)
     if lang and isText:
-        fact.factDimensions[languageCoreDim] = lang
+        fact.dimensions[languageCoreDim] = lang
 
     isNil = bool(getattr(imf, "isNil", False))
 
-    fv = XbrlFactValue()
-    fv.fact = fact
-    fv.name = SQName(factPrefix, factNs, f"{localName}_fv")
-    fv.decimals = None
-    fv.language = lang if (lang and isText) else None
-    fv.value = None
-    fv.valueSources = None
-    fv.valueAnchors = None
-    fv.transformation = None
-    fv.scale = None
-    fv.sign = None
-    fv.escape = False
-    fv.reportSource = None  # single-document default target; TODO(multi-doc): set the
+    fact.decimals = None
+    fact.language = lang if (lang and isText) else None
+    fact.value = None
+    fact.valueSources = None
+    fact.transformation = None
+    fact.scale = None
+    fact.sign = None
+    fact.escape = False
+    fact.reportSource = None  # single-document default target; TODO(multi-doc): set the
     #                   per-document sourceMapping QName for imf.modelDocument.uri.
-    nilDisplayed = False
     if isNil:
         nilProp = XbrlProperty()
         nilProp.property = qnNil
         nilProp.value = qnUnknownNilReason
         fact.properties = [nilProp]
-        # A displayed nil fact keeps a fact value that only locates it (tavi-import, "Nil
-        # facts"): valueSources on where it is displayed, and xbrltt:fixed-empty saying that
-        # text yields no value. A nil element in ix:hidden is displayed only through a
-        # hidden-style property; one in the body is located at its own (empty) element.
+        # A displayed nil fact keeps valueSources that only locate it (tavi-import, "Nil
+        # facts"): on a nil fact they never supply a value (tavi.md "Fact value source object"),
+        # so the displayed text -- often the row label -- is not read as one. A nil element in
+        # ix:hidden is displayed only through a hidden-style property; one in the body is
+        # located at its own (empty) element.
         if _isInIxHidden(imf):
             displays = (hiddenDisplays or {}).get(imf.get("id")) if imf.get("id") else None
-            source = _displayValueSource(displays, fv) if displays else None
+            source = _displayValueSource(displays, fact) if displays else None
         else:
-            source = _htmlValueSource(imf, fv)
+            source = _htmlValueSource(imf, fact)
         if source is not None:
-            fv.valueSources = [source]
-            fv.transformation = qnFixedEmpty
-            nilDisplayed = True
+            fact.valueSources = [source]
     else:
         if isNumeric:
             # decimals is a NUMBER in the model (or the string "INF"); Arelle's inline fact
             # carries the raw @decimals attribute as a string, which serializes as "-6" and
             # fails the schema on every numeric fact of every saved model.
-            fv.decimals = _decimalsValue(getattr(imf, "decimals", None))
-            if fv.decimals is None and getattr(imf, "precision", None) is not None:
+            fact.decimals = _decimalsValue(getattr(imf, "decimals", None))
+            if fact.decimals is None and getattr(imf, "precision", None) is not None:
                 # ix:nonFraction may state @precision instead, and the conformance suite
                 # does. The {decimals} property is then inferred from it (XBRL 2.1 4.6.6).
                 from .LoadFactsCommon import decimalsValue as _inferDecimals
-                fv.decimals = _inferDecimals(imf, error=compMdl.error)
+                fact.decimals = _inferDecimals(imf, error=compMdl.error)
         if _isInIxHidden(imf):
             # Not displayed: the literal (already ix-transformed) value, and a value source
             # only for the element that displays it through a hidden-style property.
-            fv.value = imf.value
+            fact.value = imf.value
             displays = (hiddenDisplays or {}).get(imf.get("id")) if imf.get("id") else None
             if displays:
-                source = _displayValueSource(displays, fv)
+                source = _displayValueSource(displays, fact)
                 if source is not None:
-                    fv.valueSources = [source]
+                    fact.valueSources = [source]
             source = None
         else:
-            source = _htmlValueSource(imf, fv)
+            source = _htmlValueSource(imf, fact)
         if source is not None:
             # Faithful inline form: the value is re-derivable from the document, so the
             # model fact carries the locator + transform metadata and NO literal value;
             # the resolved value is published as a derived fact object (see SaveModel /
             # the OIM Taxonomy Derived Content spec).
-            fv.valueSources = [source]
-            fv.transformation = imf.format          # ix:format transform QName (or None)
-            fv.sign = imf.sign or None              # "-" negates; None otherwise
-            fv.scale = imf.scaleInt                  # power-of-10 int (or None)
-            fv.escape = bool(getattr(imf, "isEscaped", False))
-        elif fv.value is None:
+            fact.valueSources = [source]
+            fact.transformation = imf.format          # ix:format transform QName (or None)
+            fact.sign = imf.sign or None              # "-" negates; None otherwise
+            fact.scale = imf.scaleInt                  # power-of-10 int (or None)
+            fact.escape = bool(getattr(imf, "isEscaped", False))
+        elif fact.value is None:
             # No durable @id to point at -- keep the literal (already ix-transformed)
             # value; this fact stays an ordinary model fact, nothing to derive.
-            fv.value = imf.value
+            fact.value = imf.value
 
-    # A nil fact has NO fact value: nil is a property of the fact (xbrl:nil, naming a nil
-    # reason member), and the fact simply reports nothing. Attaching an empty fact value
-    # emitted {"name": "..._fv"} with neither a value nor value sources, which the schema
-    # rightly rejects -- a fact value must have one or the other. Every nil fact in the OIM
-    # taxonomy conformance suite carries the property and no factValues.
-    fact.factValues = None if isNil and not nilDisplayed else [fv]
+    # A nil fact has no value: nil is a property of the fact (xbrl:nil, naming a nil reason
+    # member), and the fact simply reports nothing. Every nil fact in the OIM taxonomy
+    # conformance suite carries the property and no value.
 
     # Transient, non-serialized back-ref for Xule / error messages (see module docstring).
     fact._sourceInlineFact = imf
@@ -516,7 +506,7 @@ def _hiddenFactDisplays(inlineMx) -> dict:
     return displays
 
 
-def _displayValueSource(displays, fv) -> Optional["XbrlFactValueSource"]:
+def _displayValueSource(displays, fact) -> Optional["XbrlFactValueSource"]:
     """A value source locating the element(s) that display a hidden fact.
 
     TODO(multi-doc): elements in different documents of an IXDS need their own reportSource.
@@ -525,7 +515,7 @@ def _displayValueSource(displays, fv) -> Optional["XbrlFactValueSource"]:
     for qn, value in displays:
         byProperty.setdefault(qn, []).append(value)
     source = XbrlFactValueSource()
-    source.factValue = fv
+    source.fact = fact
     source.properties = []
     for qn, values in byProperty.items():
         prop = XbrlProperty()
@@ -550,8 +540,8 @@ def _decimalsValue(decimals):
         return decimals  # not a number the model can carry; reported where it is validated
 
 
-def _htmlValueSource(imf, fv) -> Optional["XbrlFactValueSource"]:
-    """Build the factValue.valueSources entry: an ``xbrl:htmlElementId`` property = the
+def _htmlValueSource(imf, fact) -> Optional["XbrlFactValueSource"]:
+    """Build the fact.valueSources entry: an ``xbrl:htmlElementId`` property = the
     ix element's ``@id``, the durable point of truth from which the value is re-derived
     (element text -> transformation -> scale -> sign). The built-in
     ``xbrl:inline-XBRL-1.0`` and ``-1.1`` factMaps declare ``xbrl:xhtmlElementLocatorType`` as their
@@ -561,16 +551,16 @@ def _htmlValueSource(imf, fv) -> Optional["XbrlFactValueSource"]:
     "otherwise by the xbrl:htmlElementPointer property") -- but only in a single-document
     report. In a multi-document IXDS a pointer such as ``/1/2/14`` resolves in every document,
     and which document a value source names (``reportSource``) is not yet settled in the spec,
-    so there None is returned and the caller keeps the literal ``fv.value``.
+    so there None is returned and the caller keeps the literal ``fact.value``.
 
     TODO(multi-doc): the caller must also register a sourceMappings entry binding
-    ``fv.reportSource`` to ``imf.modelDocument.uri`` when the IXDS spans multiple
+    ``fact.reportSource`` to ``imf.modelDocument.uri`` when the IXDS spans multiple
     documents (ids collide across documents); for a single-document report the lone
     sourceMapping already resolves.
     """
     elementId = imf.get("id")
     if not elementId:
-        return _pointerValueSource(imf, fv)
+        return _pointerValueSource(imf, fact)
     prop = XbrlProperty()
     prop.property = qnHtmlElementId
     # xbrl:htmlElementId is declared xbrlr:stringCollection (resources/core.json), so its value
@@ -579,12 +569,12 @@ def _htmlValueSource(imf, fv) -> Optional["XbrlFactValueSource"]:
     # viewer looks like -- the document renders, the facts load, and no fact is located.
     prop.value = [elementId]
     source = XbrlFactValueSource()
-    source.factValue = fv
+    source.fact = fact
     source.properties = [prop]
     return source
 
 
-def _pointerValueSource(imf, fv) -> Optional["XbrlFactValueSource"]:
+def _pointerValueSource(imf, fact) -> Optional["XbrlFactValueSource"]:
     """A value source locating an id-less ix element by element pointer, in a single-document
     report only (see _htmlValueSource); None otherwise."""
     from .HtmlElementPointer import buildIdIndex, elementPointer
@@ -602,7 +592,7 @@ def _pointerValueSource(imf, fv) -> Optional["XbrlFactValueSource"]:
     prop.property = qnHtmlElementPointer
     prop.value = [pointer]
     source = XbrlFactValueSource()
-    source.factValue = fv
+    source.fact = fact
     source.properties = [prop]
     return source
 

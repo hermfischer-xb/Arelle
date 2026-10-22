@@ -20,7 +20,7 @@ rebind displaced, and as what makes an entry reversible, but it is currently alw
 * a **disseminator**, tagging a report somebody else filed: re-rendering a prior filing onto a
   surface it was never tagged against (an N-CSR too unwieldy to read as XHTML, laid out as
   PDF), or locating values for a viewer. Those bindings are not the filer's content, so they
-  are applied as DERIVED CONTENT -- derived fact value objects with a `basis` of `bound`,
+  are applied as DERIVED CONTENT -- derived fact values with a `basis` of `bound`,
   beside a model that is left exactly as filed.
 
 The distinction is not a processing option; it is which party is running the tool, and it
@@ -41,7 +41,9 @@ from .XbrlConst import xbrl as xbrlNs
 from .XbrlFact import XbrlFactValueSource
 from .XbrlProperty import XbrlProperty
 
-JOURNAL_VERSION = 1
+# Version 2: entries name the bound occurrence by factName (a fact is one occurrence since the
+# fact value object was collapsed into the fact); version 1 named it by factValueName.
+JOURNAL_VERSION = 2
 
 INTO_MODEL = "model"
 INTO_DERIVED = "derivedContent"
@@ -72,44 +74,38 @@ def loadJournal(cntlr, path):
     return journal
 
 
-def _factValueIndexes(compMdl):
-    """Three ways to find the fact value a journal entry names, most reliable first.
+def _factIndexes(compMdl):
+    """Two ways to find the fact a journal entry names, most reliable first.
 
-    `factValueName` is the model's own name for the OCCURRENCE being bound -- a fact value is
-    one occurrence of a fact in the document, not one value of it, and a fact printed in four
-    places has four. Naming the occurrence means an entry attaches to exactly one, with no
-    choice for this applier to make.
+    `factName` is the model's own name for the OCCURRENCE being bound. Since the fact value
+    object was collapsed into the fact, a fact is one occurrence in the document -- a data point
+    printed in four places is four facts with the same dimensions -- so naming the fact attaches
+    an entry to exactly one occurrence, with no choice for this applier to make. (Journal
+    version 1 named the occurrence by `factValueName`; it is refused, see JOURNAL_VERSION.)
 
-    `factName` names the fact, which is enough where it has a single occurrence.
-
-    The html element id is the fallback for a journal written before the viewer carried either,
-    when an entry named its fact only by the id the viewer keyed it under. That worked for a
-    located fact and not otherwise, which is why the names were added.
+    The html element id is the fallback for an entry that names its fact only by the id the
+    viewer keyed it under. That works for a located fact and not otherwise, which is why the
+    name was added.
     """
-    byValueName, byFactName, byElementId = {}, {}, {}
+    byFactName, byElementId = {}, {}
     for module in compMdl.xbrlModels.values():
         for fact in getattr(module, "facts", None) or ():
             factName = getattr(fact, "name", None)
-            for factValue in getattr(fact, "factValues", None) or ():
-                entry = (fact, factValue)
-                valueName = getattr(factValue, "name", None)
-                if valueName is not None:
-                    byValueName[str(valueName)] = entry
-                if factName is not None:
-                    byFactName.setdefault(str(factName), entry)
-                for source in getattr(factValue, "valueSources", None) or ():
-                    for prop in getattr(source, "properties", None) or ():
-                        if getattr(prop, "property", None) == qnHtmlElementId:
-                            value = prop.value
-                            for elementId in (value if isinstance(value, (list, tuple)) else [value]):
-                                byElementId.setdefault(str(elementId), entry)
-    return byValueName, byFactName, byElementId
+            if factName is not None:
+                byFactName[str(factName)] = fact
+            for source in fact.valueSources or ():
+                for prop in getattr(source, "properties", None) or ():
+                    if getattr(prop, "property", None) == qnHtmlElementId:
+                        value = prop.value
+                        for elementId in (value if isinstance(value, (list, tuple)) else [value]):
+                            byElementId.setdefault(str(elementId), fact)
+    return byFactName, byElementId
 
 
 def _entryFactKey(factId):
     """The adapter key a journal entry's factId carries, without the report index.
 
-    Only used for a journal that carries no factValueName or factName. The viewer forms a fact
+    Only used for an entry that carries no factName. The viewer forms a fact
     id as "<reportIndex>-<key>"; the key is the html element id for a located fact, and a
     synthetic "pf-N" / "hf-N" for one it placed on a PDF or could not locate -- a position in
     the order the adapter built, not an identity. That is why the model's own names are
@@ -120,8 +116,8 @@ def _entryFactKey(factId):
     return rest if (sep and prefix.isdigit()) else text
 
 
-def _sourceObjectsFrom(entry, factValue):
-    """The journal's `sources` as XbrlFactValueSource objects.
+def _sourceObjectsFrom(entry, fact):
+    """The journal's `sources` as XbrlFactValueSource objects of `fact`.
 
     The tagger already writes them in fact-value-source form -- properties with a property
     QName and a collection-typed value -- so this is an attach, not a translation.
@@ -129,7 +125,7 @@ def _sourceObjectsFrom(entry, factValue):
     sources = []
     for sourceDict in entry.get("sources") or ():
         sourceObj = XbrlFactValueSource()
-        sourceObj.factValue = factValue
+        sourceObj.fact = fact
         sourceObj.properties = []
         for propDict in sourceDict.get("properties") or ():
             propObj = XbrlProperty()
@@ -143,49 +139,43 @@ def _sourceObjectsFrom(entry, factValue):
 def applyJournal(cntlr, compMdl, journal, into=INTO_DERIVED, authority=AUTHORITY_DOCUMENT):
     """Apply a tagging journal. Returns (appliedCount, unresolved) and, for the derived-content
        party, leaves the bindings on compMdl for SaveModel to publish."""
-    byValueName, byFactName, byElementId = _factValueIndexes(compMdl)
+    byFactName, byElementId = _factIndexes(compMdl)
     applied, unresolved, bound = 0, [], []
     for entry in journal.get("entries") or ():
         if entry.get("op") != "bindValueSource":
             unresolved.append((entry.get("factId"), "unsupported op {}".format(entry.get("op"))))
             continue
-        # resolve by the model's own names where the journal carries them; the element-id
-        # fallback is for journals written before the viewer emitted them
-        found = named = None
-        for name, index in ((entry.get("factValueName"), byValueName),
-                            (entry.get("factName"), byFactName)):
-            if name:
-                named = name
-                found = index.get(str(name))
-                if found is not None:
-                    break
-        if found is None and not named:
+        # resolve by the model's own name where the entry carries it; the element-id
+        # fallback is for an entry that does not
+        found = None
+        named = entry.get("factName")
+        if named:
+            found = byFactName.get(str(named))
+        else:
             key = _entryFactKey(entry.get("factId"))
             named = key
             found = byElementId.get(key)
         if found is None:
             unresolved.append((entry.get("factId"),
-                               "the model has no fact value named '{}'".format(named)))
+                               "the model has no fact named '{}'".format(named)))
             continue
-        fact, factValue = found
+        fact = found
         if into == INTO_MODEL:
             # the preparer's own content: the binding becomes the model's
-            sources = _sourceObjectsFrom(entry, factValue)
+            fact.valueSources = _sourceObjectsFrom(entry, fact)
             if authority == AUTHORITY_VALUE:
-                # the value is the point of truth and the binding only locates it
-                factValue.value = entry.get("factValue")
-                factValue.valueAnchors = sources
-                factValue.valueSources = None
+                # the value is the point of truth and the value sources only locate it
+                fact.value = entry.get("factValue")
             else:
-                factValue.valueSources = sources
-                factValue.value = None
-            derivation = entry.get("derivation") or {}
-            for name in ("scale", "sign", "transformation"):
-                if derivation.get(name) is not None:
-                    setattr(factValue, name, derivation[name])
+                # the document is the point of truth: the value sources supply the value
+                fact.value = None
+                derivation = entry.get("derivation") or {}
+                for name in ("scale", "sign", "transformation"):
+                    if derivation.get(name) is not None:
+                        setattr(fact, name, derivation[name])
         else:
             # somebody else's report: the binding is ours, not theirs
-            bound.append({"factValueName": str(factValue.name),
+            bound.append({"factName": str(fact.name),
                           "value": entry.get("factValue"),
                           "sourceText": entry.get("capturedText"),
                           "sources": entry.get("sources")})

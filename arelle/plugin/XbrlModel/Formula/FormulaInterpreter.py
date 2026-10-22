@@ -382,8 +382,8 @@ def _findFactsByLocalName(globalCtx: FormulaGlobalContext, localName: str) -> Li
     return [
         obj for obj in globalCtx.txmyMdl.filterNamedObjects(XbrlFact)
         if (getattr(obj, "_xValid", VALID) >= VALID
-            and isinstance(obj.factDimensions.get(conceptDimQn), QName)
-            and obj.factDimensions[conceptDimQn].localName == localName)
+            and isinstance(obj.dimensions.get(conceptDimQn), QName)
+            and obj.dimensions[conceptDimQn].localName == localName)
     ]
 
 
@@ -988,10 +988,7 @@ def _formatPart(part) -> str:
 
 def _formatValue(val: FormulaValue) -> str:
     if val.type == FormulaValueType.FACT:
-        if val.value.factValues:
-            fv = next(iter(val.value.factValues))
-            return str(fv.value) if fv.value is not None else ""
-        return ""
+        return str(val.value.value) if val.value.value is not None else ""
     if val.type == FormulaValueType.LABEL:
         return _formatLabel(val.value)
     if val.type == FormulaValueType.REFERENCE:
@@ -1187,7 +1184,7 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         from arelle.XmlValidateConst import VALID
         seedFacts = [
             f for f in sourceMdl.filterNamedObjects(XbrlFact)
-            if getattr(f, "factDimensions", None)
+            if getattr(f, "dimensions", None)
             and getattr(f, "_xValid", VALID) >= VALID
         ]
     elif conceptFilter is not None:
@@ -1214,7 +1211,7 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         from arelle.XmlValidateConst import VALID
         seedFacts = [
             f for f in ctx.globalCtx.txmyMdl.filterNamedObjects(XbrlFact)
-            if getattr(f, "factDimensions", None)
+            if getattr(f, "dimensions", None)
             and getattr(f, "_xValid", VALID) >= VALID
         ]
 
@@ -1224,7 +1221,7 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
 
     for fact in seedFacts:
         # Exclude footnote facts (concept name 'note' per spec)
-        conceptVal = fact.factDimensions.get(conceptDimQn)
+        conceptVal = fact.dimensions.get(conceptDimQn)
         if isinstance(conceptVal, QName) and conceptVal.localName == "note":
             continue
 
@@ -1243,7 +1240,7 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
                 break
             alias = pf.get("alias")
             if alias and pf.get("dimQn") is not None:
-                aliasBindings[alias] = fact.factDimensions.get(pf["dimQn"])
+                aliasBindings[alias] = fact.dimensions.get(pf["dimQn"])
         if not ok:
             continue
 
@@ -1255,7 +1252,7 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
                 isinstance(dimQn, QName)
                 and (dimQn not in namedDims)
                 and not _isCoreDimQn(dimQn)
-                for dimQn in fact.factDimensions
+                for dimQn in fact.dimensions
             )
             if hasUnnamedTaxDim:
                 continue
@@ -1313,7 +1310,7 @@ def _queryAlignment(fact, coverAll: bool, coverTaxDims: bool, coveredDims) -> Op
         return None
     from .FormulaValue import _makeHashable
     items = []
-    for dimQn, value in fact.factDimensions.items():
+    for dimQn, value in fact.dimensions.items():
         if not isinstance(dimQn, QName):
             continue                      # internal slots such as _periodValue
         if dimQn in coveredDims:
@@ -1512,7 +1509,7 @@ def _factMatchesFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     dimQn = pf.get("dimQn")
     if dimQn is None:
         return True
-    factDimVal = fact.factDimensions.get(dimQn)
+    factDimVal = fact.dimensions.get(dimQn)
 
     # Optional property chain: e.g. @concept.balance — resolve fact's dim value
     # to the object (concept) then apply property chain.
@@ -1628,7 +1625,7 @@ def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     from arelle.ModelValue import qname as mkQn
 
     cubeDimQn = mkQn(_coreDimNs(), "cube")
-    factCubeNames = fact.factDimensions.get(cubeDimQn)
+    factCubeNames = fact.dimensions.get(cubeDimQn)
     if factCubeNames is None:
         # Fall back: scan cubes' _cellFacts (populated by ValidateFacts) to
         # determine cube membership.
@@ -1637,7 +1634,7 @@ def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
             cellFacts = getattr(cube, "_cellFacts", None)
             if cellFacts:
                 for cellEntries in cellFacts.values():
-                    if any(f is fact for f, _ in cellEntries):
+                    if any(f is fact for f in cellEntries):
                         cubeNames.append(getattr(cube, "name", None))
                         break
         factCubeQns = [n for n in cubeNames if n is not None]
@@ -1677,7 +1674,7 @@ def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
 def _factMatchesDimsFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     """`@dimensions = $dict`, `@dimensions = *`, `@dimensions = none`."""
     taxDims = {
-        qn: v for qn, v in fact.factDimensions.items()
+        qn: v for qn, v in fact.dimensions.items()
         if not _isCoreDimQn(qn)
     }
     op = pf["op"]
@@ -1731,9 +1728,6 @@ def _isNil(fact) -> bool:
         _qnNilProperty = qnFactNilProperty
     if any(getattr(p, "property", None) == _qnNilProperty for p in (getattr(fact, "properties", None) or ())):
         return True
-    if getattr(fact, "factValues", None):
-        fv = next(iter(fact.factValues))
-        return fv.value is None and not getattr(fv, "valueSources", None)
     return False
 
 
@@ -2156,9 +2150,7 @@ def _compare(left: FormulaValue, op: str, right: FormulaValue,
             try:
                 return fv.numericValue()
             except (TypeError, FormulaRuntimeError):
-                if fv.value.factValues:
-                    return next(iter(fv.value.factValues)).value
-                return None
+                return fv.value.value
         if fv.type == FormulaValueType.DATE and isinstance(fv.value, InstantValue):
             return fv.value.dt
         if fv.type == FormulaValueType.DURATION:

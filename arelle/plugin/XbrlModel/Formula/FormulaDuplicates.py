@@ -7,11 +7,9 @@ is the behaviour of XBRL Formula 1.0 and it matters in practice -- a total that 
 report states both in a table and parenthetically in the surrounding text would
 otherwise produce two iterations and double every sum computed from it.
 
-Two things de-duplicate by the same rule:
-
-  * several XbrlFact objects with the same dimensions (Tavi's duplicate facts);
-  * one XbrlFact carrying several XbrlFactValue objects, which is the same value
-    reported in more than one place, or amended.
+Several XbrlFact objects with the same dimensions (Tavi's duplicate facts)
+de-duplicate. Since the fact value object was collapsed into the fact, a value
+reported in more than one place, or amended, is itself several facts.
 
 Classification follows Tavi's duplicate fact validation: complete duplicates
 agree on value and decimals; consistent duplicates are numeric and have
@@ -113,29 +111,20 @@ def _mostPrecise(items: Sequence[Any], decimalsList: Sequence[Optional[int]]) ->
 
 
 # ---------------------------------------------------------------------------
-# Fact value de-duplication (several XbrlFactValue on one XbrlFact)
+# The object carrying a fact's value
 # ---------------------------------------------------------------------------
 
 def effectiveFactValue(fact) -> Optional[Any]:
-    """The fact value object that carries the fact's value.
+    """The object that carries the fact's value: the fact itself, when it has a value or
+    value sources, else None.
 
-    Where a fact has several fact value objects -- the same value located in a
-    table and again in narrative text, say -- they are duplicates of each other
-    and resolve to one.  Inconsistent values cannot resolve, and the first is
-    returned so that a rule still sees a value; a rule that needs to detect the
-    disagreement reads `factValues`.
+    A fact has at most one value (the fact value object was collapsed into the fact), so
+    there is nothing left to resolve here; the function remains so that the language's
+    `factValue` type and its readers (value, decimals, isNil) keep one access point.
     """
-    fvs = list(getattr(fact, "factValues", None) or ())
-    if not fvs:
-        return None
-    if len(fvs) == 1:
-        return fvs[0]
-    values = [getattr(fv, "value", None) for fv in fvs]
-    decs = [_decimalsOf(fv) for fv in fvs]
-    kind = classify(values, decs)
-    if kind == CONSISTENT:
-        return _mostPrecise(fvs, decs)
-    return fvs[0]
+    if getattr(fact, "value", None) is not None or getattr(fact, "valueSources", None):
+        return fact
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +132,7 @@ def effectiveFactValue(fact) -> Optional[Any]:
 # ---------------------------------------------------------------------------
 
 def _dimensionKey(fact) -> frozenset:
-    dims = getattr(fact, "factDimensions", None) or {}
+    dims = getattr(fact, "dimensions", None) or {}
     return frozenset(
         (k, v) for k, v in dims.items()
         if isinstance(k, QName)

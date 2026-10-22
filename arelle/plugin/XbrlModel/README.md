@@ -124,8 +124,8 @@ alignment writes into is `--alignInto`, and that choice is about who is running
 the tool rather than about the data — see §4.
 
 An inline-XBRL report can be paired with a PDF so that each fact knows **where it
-appears in the PDF**. That location is recorded on the fact's `valueSources` (or
-`valueAnchors`) using the PDF locator property types defined in
+appears in the PDF**. That location is recorded on the fact's `valueSources`
+using the PDF locator property types defined in
 `oim-taxonomy.md` (§ *Locator-specific property types* / *Fact locator types*).
 A viewer can then highlight the PDF region for a selected fact, and a resolver
 can extract the source text for validation.
@@ -145,10 +145,10 @@ produced by `saveOIMFacts` (`--plugins saveOIMFacts --SaveOIMFactspace facts.jso
 They rewrite those locators to the target surface's: PDF page/MCID/bbox, or the
 `xbrlx:htmlElementPointer` / `htmlTextOffset` / `htmlTextQuote` triple for HTML5.
 
-**A fact keeps its form.** A fact value with no `value` has its locators in
-`valueSources` and is derived from the text found there; a `report`-mode save
-gives each fact its `value` and moves the locators to `valueAnchors`, which only
-locate it. The aligner rewrites whichever the fact uses. Align a `report`-mode
+**A fact keeps its form.** A fact with no `value` is derived from the text its
+`valueSources` locate; a `report`-mode save gives each fact its `value`, beside which
+the `valueSources` only locate it. The aligner rewrites the locators and leaves the
+value as it is. Align a `report`-mode
 model: its facts keep their filed values, so nothing has to be re-derived from
 the new surface's text, which for a PDF often does not parse back to the filed
 number (`11 313,4` in a French report).
@@ -315,7 +315,7 @@ For a preparer, `--taggingValueAuthority` selects what the filing asserts is the
 | | the fact carries | means |
 |---|---|---|
 | `document` (default) | `valueSources`, no value | the document text is authoritative; a consumer re-derives the value from it |
-| `value` | `value` + `valueAnchors` | the value is authoritative — imported from an accounting system, a prior filing, a spreadsheet — and the binding only locates it |
+| `value` | `value` + `valueSources` | the value is authoritative — imported from an accounting system, a prior filing, a spreadsheet — and the binding only locates it |
 
 A journal entry names its fact by the viewer's fact id. For a located fact that is
 `<reportIndex>-<htmlElementId>` and resolves against the model; for one the viewer could not
@@ -495,9 +495,9 @@ panes in the upper-left tab window: **Properties** (from the object's
 Facts panes also index each fact under its dimension members, so selecting a
 concept or unit reveals a fact that uses it, and selecting a fact reveals its
 concept in the Concepts pane and its unit in the Units pane. In the Properties
-pane a fact's dimensions are flat rows (no expanding per fact), while its
-`factValues` expand to show `value`, `decimals`, any transformation, and the
-`valueSources` locating the value in the source document — for an inline or PDF
+pane a fact's dimensions are flat rows (no expanding per fact), followed by its
+`value`, `decimals`, any transformation, and the expandable `valueSources` locating
+the value in the source document — for an inline or PDF
 report, the html element id the fact was tagged from.
 
 **Find** — the infrastructure Find dialog (toolbar, or Tools ▸ Find) searches the
@@ -518,7 +518,7 @@ parameter `oimSaveMode` (default `full`):
 - **`prune`** — the *interpretation-minimal* closure: only the taxonomy objects a
   consumer needs to *interpret* the reported facts (their concepts, dimensions,
   members, datatypes, labels, units). Networks, cubes and the reporting structure
-  are dropped — a self-describing fact carries its own factDimensions.
+  are dropped — a self-describing fact carries its own dimensions.
 - **`report`** — the *semantic / consumable* closure: the `prune` closure **plus**
   the presentation networks and cubes that organise the reported facts, and the
   reporting-structure groups + `groupTree` that section them, with facts tailored to
@@ -554,7 +554,7 @@ rather than what the filer reported:
 
 | | |
 |---|---|
-| `factValues` | the values resolved from each fact's value sources, with `basis: resolved` |
+| `factValues` | the values resolved from each fact's value sources, keyed by `factName`, with `basis: resolved` |
 | `cubeContents` | which fact objects match each cube |
 | `calculationResults` | what validation concluded for each calculation binding |
 | `derivation` | when, by what processor, under which rule sets — required wherever non-derivable content is carried |

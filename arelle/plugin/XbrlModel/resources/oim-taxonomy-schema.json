@@ -41,7 +41,7 @@
                 },
                 "sourceMappings": {
                     "type": "array",
-                    "description": "Set of fact source mapping objects that map fact source object QNames to their source document URL locations. Required when the model contains fact value source or fact value anchor objects referencing external source files.",
+                    "description": "Set of fact source mapping objects that map fact source object QNames to their source document URL locations. Required when the model contains fact value source objects referencing external source files.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -1274,120 +1274,79 @@
                             "name": {
                                 "$ref": "#/definitions/SQName"
                             },
-                            "factValues": {
-                                "type": "array",
-                                "description": "The fact value object defines the value of a fact object. A fact can have multiple fact values. Each fact value is defined using the value property. The value property can be a literal value or a set of value sources that define how to extract the value from an embedding document.",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "$ref": "#/definitions/QName"
-                                        },
-                                        "value": {
-                                            "oneOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "string"
-                                                    }
-                                                }
-                                            ],
-                                            "description": "Literal fact value, when not derived from valueSources."
-                                        },
-                                        "decimals": {
-                                            "oneOf": [
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "string",
-                                                    "pattern": "INF"
-                                                }
-                                            ],
-                                            "description": "An integer providing the value of the decimals property, or absent if the value is infinitely precise or not applicable (for nil or non-numeric facts)"
-                                        },
-                                        "roundingMode": {
-                                            "type": "string",
-                                            "enum": [
-                                                "roundToNearest",
-                                                "truncation"
-                                            ],
-                                            "description": "Rounding mode of this fact value; where absent the rounding mode of the XBRL model object declaring the fact applies."
-                                        },
-                                        "language": {
-                                            "type": "string",
-                                            "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
-                                            "description": "Language of the fact value (BCP 47)."
-                                        },
-                                        "reportSource": {
-                                            "$ref": "#/definitions/QName",
-                                            "description": "QName identifying the source document via the sourceMappings array of the documentInfo object. Applied to all valueSources entries on this factValue when present."
-                                        },
-                                        "transformation": {
-                                            "$ref": "#/definitions/QName",
-                                            "xbrlType": "transformationQName",
-                                            "description": "QName of a transformation to apply to extracted source text (e.g. locale date conversion). Applied to all valueSources entries unless overridden."
-                                        },
-                                        "scale": {
-                                            "type": "integer",
-                                            "description": "Power of 10 to multiply the extracted numeric value (e.g. 6 for millions). Applied to all valueSources entries."
-                                        },
-                                        "sign": {
-                                            "type": "string",
-                                            "enum": [
-                                                "-"
-                                            ],
-                                            "description": "Set to '-' if the extracted source value must be negated to produce the canonical fact value."
-                                        },
-                                        "escape": {
-                                            "type": "boolean",
-                                            "description": "If true, the value is the escaped representation for media with markup (html, xml); otherwise the concatenated descendant text content is used. Defaults to false."
-                                        },
-                                        "valueSources": {
-                                            "type": "array",
-                                            "description": "Ordered set of factValueSource objects identifying where the values are obtained from content of an embedding or accompanying document file.",
-                                            "items": {
-                                                "$ref": "#/definitions/factValueSourceObject"
-                                            },
-                                            "minItems": 1,
-                                            "uniqueItems": true
-                                        },
-                                        "valueAnchors": {
-                                            "type": "array",
-                                            "description": "Ordered set of factValueAnchor objects identifying corresponding content of an embedding document file for visual highlighting and mouse-over, typically when the value is provided directly in 'value'.",
-                                            "items": {
-                                                "$ref": "#/definitions/factValueAnchorObject"
-                                            },
-                                            "minItems": 1,
-                                            "uniqueItems": true
-                                        }
+                            "value": {
+                                "oneOf": [
+                                    {
+                                        "type": "string"
                                     },
-                                    "additionalProperties": false,
-                                    "allOf": [
-                                        {
-                                            "required": [
-                                                "name"
-                                            ],
-                                            "anyOf": [
-                                                {
-                                                    "required": [
-                                                        "value"
-                                                    ]
-                                                },
-                                                {
-                                                    "required": [
-                                                        "valueSources"
-                                                    ]
-                                                }
-                                            ]
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
                                         }
-                                    ]
-                                }
+                                    }
+                                ],
+                                "description": "Literal fact value, when not derived from valueSources."
                             },
-                            "factDimensions": {
+                            "decimals": {
+                                "oneOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "string",
+                                        "pattern": "INF"
+                                    }
+                                ],
+                                "description": "An integer providing the value of the decimals property, or absent if the value is infinitely precise or not applicable (for nil or non-numeric facts)"
+                            },
+                            "roundingMode": {
+                                "type": "string",
+                                "enum": [
+                                    "roundToNearest",
+                                    "truncation"
+                                ],
+                                "description": "Rounding mode of this fact value; where absent the rounding mode of the XBRL model object declaring the fact applies."
+                            },
+                            "language": {
+                                "type": "string",
+                                "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
+                                "description": "Language of the fact value (BCP 47)."
+                            },
+                            "reportSource": {
+                                "$ref": "#/definitions/QName",
+                                "description": "QName identifying the source document via the sourceMappings array of the documentInfo object. Applied to all valueSources entries on this fact when present."
+                            },
+                            "transformation": {
+                                "$ref": "#/definitions/QName",
+                                "xbrlType": "transformationQName",
+                                "description": "QName of a transformation to apply to extracted source text (e.g. locale date conversion). Applied to all valueSources entries unless overridden."
+                            },
+                            "scale": {
+                                "type": "integer",
+                                "description": "Power of 10 to multiply the extracted numeric value (e.g. 6 for millions). Applied to all valueSources entries."
+                            },
+                            "sign": {
+                                "type": "string",
+                                "enum": [
+                                    "-"
+                                ],
+                                "description": "Set to '-' if the extracted source value must be negated to produce the canonical fact value."
+                            },
+                            "escape": {
+                                "type": "boolean",
+                                "description": "If true, the value is the escaped representation for media with markup (html, xml); otherwise the concatenated descendant text content is used. Defaults to false."
+                            },
+                            "valueSources": {
+                                "type": "array",
+                                "description": "Ordered set of factValueSource objects identifying the content of an embedding or accompanying document file that corresponds to the fact. When 'value' is absent and the fact is not nil, the value is obtained from this content; otherwise the content only corresponds to the fact, for highlighting and mouse-over.",
+                                "items": {
+                                    "$ref": "#/definitions/factValueSourceObject"
+                                },
+                                "minItems": 1,
+                                "uniqueItems": true
+                            },
+                            "dimensions": {
                                 "type": "object",
                                 "description": "Object mapping dimension QNames to their values for this fact.",
                                 "properties": {
@@ -1437,7 +1396,7 @@
                                     "xbrl:concept"
                                 ]
                             },
-                            "factQualifier": {
+                            "qualifier": {
                                 "type": "object",
                                 "description": "Dimension properties associated with a fact that do not represent dimensions comprising a cube space. Only taxonomy-defined dimensions are permitted; core dimensions (xbrl:concept, xbrl:period, xbrl:unit, xbrl:entity) must not appear.",
                                 "patternProperties": {
@@ -1478,7 +1437,7 @@
                             {
                                 "required": [
                                     "name",
-                                    "factDimensions"
+                                    "dimensions"
                                 ]
                             },
                             {
@@ -1492,13 +1451,71 @@
                                 {
                                     "required": [
                                         "extends",
-                                        "factDimensions"
+                                        "dimensions"
                                     ]
                                 },
                                 {
                                     "required": [
                                         "extends",
                                         "name"
+                                    ]
+                                }
+                            ]
+                        },
+                        "if": {
+                            "anyOf": [
+                                {
+                                    "required": [
+                                        "decimals"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "roundingMode"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "language"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "reportSource"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "transformation"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "scale"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "sign"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "escape"
+                                    ]
+                                }
+                            ]
+                        },
+                        "then": {
+                            "anyOf": [
+                                {
+                                    "required": [
+                                        "value"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "valueSources"
                                     ]
                                 }
                             ]
@@ -1581,7 +1598,7 @@
                             "factIdentifierNamespacePrefix": {
                                 "type": "string",
                                 "pattern": "^[a-zA-Z_][\\w.-]*$",
-                                "description": "A namespace prefix to use for generated fact and factValue object QNames. The prefix must be declared in documentInfo.namespaces."
+                                "description": "A namespace prefix to use for generated fact object QNames. The prefix must be declared in documentInfo.namespaces."
                             }
                         },
                         "dependencies": {
@@ -1642,7 +1659,7 @@
                             "factLocatorType": {
                                 "$ref": "#/definitions/QName",
                                 "xbrlType": "factLocatorTypeQName",
-                                "description": "A QName identifying the fact locator type object that provides the default locatorType for all fact value objects that reference this fact map via a fact source object. When present on the factMap entry, it overrides the need to specify locatorType on each individual factValue."
+                                "description": "A QName identifying the fact locator type object that provides the default locatorType for all fact objects that reference this fact map via a fact source object. When present on the factMap entry, it overrides the need to specify locatorType on each individual fact."
                             }
                         },
                         "required": [
@@ -3582,27 +3599,11 @@
         },
         "factValueSourceObject": {
             "type": "object",
-            "description": "Identifies a single contiguous fragment of a source document that contributes (by concatenation) to a fact value. When the parent factValue carries a locatorType and source, each entry need only supply the fragment-specific addressing properties. The legacy flat approach (medium, id, page, etc.) is also accepted for backward compatibility.",
+            "description": "Identifies a single contiguous fragment of a source document that corresponds to a fact. When the fact has no value and is not nil, the fragments contribute (by concatenation) to its value; otherwise they locate its content for highlighting and mouse-over. When the parent fact carries a locatorType and source, each entry need only supply the fragment-specific addressing properties. The legacy flat approach (medium, id, page, etc.) is also accepted for backward compatibility.",
             "properties": {
                 "properties": {
                     "type": "array",
-                    "description": "Fragment-specific addressing properties validated against the requiredProperties and allowedProperties of the locatorType declared on the parent factValue.",
-                    "items": {
-                        "$ref": "#/definitions/propertyObject"
-                    },
-                    "minItems": 1,
-                    "uniqueItems": true
-                }
-            },
-            "additionalProperties": false
-        },
-        "factValueAnchorObject": {
-            "type": "object",
-            "description": "Identifies a region of a source document that visually corresponds to a fact value, for tool highlighting and mouse-over. Carries no extraction semantics. When the parent factValue carries a locatorType and source, each entry need only supply the fragment-specific addressing properties.",
-            "properties": {
-                "properties": {
-                    "type": "array",
-                    "description": "Fragment-specific addressing properties validated against the allowedProperties of the locatorType declared on the parent factValue.",
+                    "description": "Fragment-specific addressing properties validated against the requiredProperties and allowedProperties of the locatorType declared on the parent fact.",
                     "items": {
                         "$ref": "#/definitions/propertyObject"
                     },

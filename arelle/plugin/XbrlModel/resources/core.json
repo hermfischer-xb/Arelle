@@ -1862,8 +1862,7 @@
                 "dataType": "xbrlr:stringCollection",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject",
-                    "xbrl:factValueAnchorObject"
+                    "xbrl:factValueSourceObject"
                 ]
             },
             {
@@ -1871,8 +1870,7 @@
                 "dataType": "xbrlr:stringCollection",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject",
-                    "xbrl:factValueAnchorObject"
+                    "xbrl:factValueSourceObject"
                 ]
             },
             {

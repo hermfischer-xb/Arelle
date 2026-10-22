@@ -201,7 +201,7 @@ def moduleLoaders(module: "XbrlModule",
             if factMapQn in builtins:
                 continue
             # A locator-type fact map (factLocatorType, no templateName) only
-            # binds a source document for factValue valueSource resolution -- it
+            # binds a source document for fact valueSource resolution -- it
             # generates no facts, so there is no loader to run for it. Only
             # template-backed custom maps (tableTemplate / jsonTemplateMap /
             # xmlTemplateMap) produce facts via the streaming lazy loader.
@@ -241,7 +241,7 @@ class FactSink:
 
     def accept(self, fact: "XbrlFact") -> None:
         from .XbrlCube import conceptCoreDim  # local import: cube module not needed at plugin import time
-        conceptQn = (fact.factDimensions or {}).get(conceptCoreDim) if getattr(fact, "factDimensions", None) else None
+        conceptQn = (fact.dimensions or {}).get(conceptCoreDim)
         if conceptQn in self._skipConcepts:
             return
         if self._callResolveFact:

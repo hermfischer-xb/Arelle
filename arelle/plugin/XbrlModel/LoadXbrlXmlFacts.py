@@ -5,8 +5,8 @@ xBRL-XML built-in fact map.
 
 Implements the ``xbrl:xBRL-XML`` built-in fact map defined in the OIM Taxonomy
 specification ("xBRL-XML fact map" section). It maps the fact and footnote
-elements of an XBRL 2.1 XML instance document into ``XbrlFact`` / ``XbrlFactValue``
-/ ``XbrlFootnote`` model objects.
+elements of an XBRL 2.1 XML instance document into ``XbrlFact`` / ``XbrlFootnote``
+model objects.
 
 Design (see plan calm-floating-blanket.md):
 
@@ -39,7 +39,7 @@ from arelle import ValidateFilingText
 from .ModelValueMore import SQName
 from .XbrlConcept import XbrlConcept
 from .XbrlCube import conceptCoreDim, periodCoreDim, entityCoreDim, unitCoreDim, languageCoreDim
-from .XbrlFact import XbrlFact, XbrlFactValue, XbrlFootnote
+from .XbrlFact import XbrlFact, XbrlFootnote
 from .XbrlProperty import XbrlProperty
 # Shared XBRL 2.1 -> OIM converters (also used by LoadInlineFacts); imported under
 # underscore aliases so this module's body reads unchanged after the extraction.
@@ -148,8 +148,8 @@ def parseXbrlXmlFacts(compMdl, module, factSource, url):
         fact.parent = module
         fact.name = SQName(factPrefix, factNs, localName)
         fact.extends = None
-        fact.factQualifier = None
-        fact.factDimensions = {conceptCoreDim: conceptQn}
+        fact.qualifier = None
+        fact.dimensions = {conceptCoreDim: conceptQn}
         fact.properties = None
 
         ctxRef = elt.get("contextRef")
@@ -157,45 +157,39 @@ def parseXbrlXmlFacts(compMdl, module, factSource, url):
         if ctx is not None:
             entityQn, oimPer, dims = ctx
             if entityQn is not None:
-                fact.factDimensions[entityCoreDim] = entityQn
+                fact.dimensions[entityCoreDim] = entityQn
             if oimPer is not None:
-                fact.factDimensions[periodCoreDim] = oimPer
+                fact.dimensions[periodCoreDim] = oimPer
             for dQn, dVal in dims.items():
-                fact.factDimensions[redirect(dQn)] = redirect(dVal) if isinstance(dVal, QName) else dVal
+                fact.dimensions[redirect(dQn)] = redirect(dVal) if isinstance(dVal, QName) else dVal
 
         isNumeric = conceptObj.isNumeric(compMdl)
         unitRef = elt.get("unitRef")
         if unitRef is not None:
             uStr = units.get(unitRef)
             if uStr is not None:
-                fact.factDimensions[unitCoreDim] = uStr
+                fact.dimensions[unitCoreDim] = uStr
 
         lang = elt.get(_clark(XMLNS, "lang")) or _inheritedLang(elt)
         if lang and conceptObj.isOimTextFactType(compMdl):
-            fact.factDimensions[languageCoreDim] = lang
+            fact.dimensions[languageCoreDim] = lang
 
         # nil facts carry no value and a xbrl:nil = xbrl:unknownNilReason property.
         isNil = (elt.get(_clark(XSI, "nil")) in ("true", "1"))
 
-        fv = XbrlFactValue()
-        fv.fact = fact
-        fv.name = SQName(factPrefix, factNs, f"{localName}_fv")
-        fv.decimals = None
-        fv.language = lang if (lang and conceptObj.isOimTextFactType(compMdl)) else None
-        fv.valueSources = None
-        fv.valueAnchors = None
+        fact.decimals = None
+        fact.language = lang if (lang and conceptObj.isOimTextFactType(compMdl)) else None
         if isNil:
-            fv.value = None
+            fact.value = None
             nilProp = XbrlProperty()
             nilProp.property = _qnNil
             nilProp.value = _qnUnknownNilReason
             fact.properties = [nilProp]
         else:
             text = elt.text if elt.text is not None else ""
-            fv.value = text
+            fact.value = text
             if isNumeric:
-                fv.decimals = _decimalsValue(elt, error=compMdl.error)
-        fact.factValues = [fv]
+                fact.decimals = _decimalsValue(elt, error=compMdl.error)
 
         facts.append(fact)
         factIdByElt[elt] = localName

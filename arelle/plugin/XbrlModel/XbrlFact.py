@@ -13,11 +13,15 @@ from .XbrlTypes import XbrlTaxonomyModelAlias,XbrlModuleAlias, QNameKeyType, Def
 from .XbrlObject import XbrlObject, XbrlReportObject
 from .XbrlProperty import XbrlProperty
 from .XbrlUnit import  parseUnitString
+from .XbrlConst import xbrl as xbrlNs
 
-XbrlFactValueAlias: TypeAlias = "XbrlFactValue"
+# xbrl:nil property marks a fact whose value is not disclosed (oim-taxonomy "Nil Property").
+qnFactNilProperty = QName("xbrl", xbrlNs, "nil")
+
+XbrlFactAlias: TypeAlias = "XbrlFact"
 
 def locatorPropertyView(locatorObj):
-    """Property view of a fact value source or anchor: its locator properties directly.
+    """Property view of a fact value source: its locator properties directly.
 
     Such an object is nothing but its properties, so the default view -- a "properties" node
     wrapping them -- costs the reader an extra expansion for no information. List-valued
@@ -32,33 +36,33 @@ def locatorPropertyView(locatorObj):
 
 class XbrlFactValueSource(XbrlObject):
     """ Fact Value Source Object
-        Reference: oim-taxonomy#factvaluesource-object"""
-    factValue: XbrlFactValueAlias
+        Reference: oim-taxonomy#fact-value-source
+
+        Identifies document content corresponding to the value of its fact. When the fact has no
+        ``value`` and is not nil, the sources supply the value (concatenated in order, then the
+        fact's transformation, scale and sign are applied); when the fact has a ``value``, or is
+        nil, they only locate the corresponding content (the role of the former fact value
+        anchor object).
+    """
+    fact: XbrlFactAlias
     properties: OrderedSet[XbrlProperty] # (required) A set of property objects used to specify the interface properties defined by the locatorType for the fact source.
 
     @property
     def propertyView(self):
         return locatorPropertyView(self)
 
-class XbrlFactValueAnchor(XbrlObject):
-    """ Fact Value Anchor Object
-        Reference: oim-taxonomy#factvalueanchor-object
-    """
-    factValue: XbrlFactValueAlias
-    properties: OrderedSet[XbrlProperty] # (required) A set of property objects used to specify the interface properties defined by the locatorType for the fact anchor.
+class XbrlFact(XbrlReportObject):
+    """ Fact Object
+        Reference: oim-taxonomy#fact-object
 
-    @property
-    def propertyView(self):
-        return locatorPropertyView(self)
-
-XbrlFactAlias: TypeAlias = "XbrlFact"
-class XbrlFactValue(XbrlObject):
-    """ Fact Value Object
-        Reference: oim-taxonomy#factvalue-object
+        A fact has at most one value: the properties of the former fact value object (value,
+        decimals, language, reportSource, transformation, scale, sign, escape, valueSources)
+        are properties of the fact. Several reported values for the same dimensions are several
+        fact objects (duplicate facts).
     """
-    fact: XbrlFactAlias
-    name: SQName # (required) The fact SQName that identifies the fact value so it can be referenced by other objects. It is an SQName that allows a the local name to start with a number.
-    value: Optional[Any] # (required if valueSources not provided) The value of the fact. This can be a numeric value, a string, or any other type of value that is valid for the fact.
+    module: XbrlModuleAlias  # facts in taxonomy module are owned by the txmyMdl
+    name: QNameKeyType # (equired if no extends) The name is a QName that uniquely identifies the factspace object.
+    value: Optional[Any] # (optional) The value of the fact. This can be a numeric value, a string, or any other type of value that is valid for the fact.
     decimals: Optional[int] # An integer providing the value of the {decimals} property, or absent if the value is infinitely precise or not applicable (for nil or non-numeric facts).
     roundingMode: Optional[str] # (optional) How this value was obtained from the value it represents, `roundToNearest` or `truncation`. Where absent the rounding mode of the XBRL model object declaring the fact applies, which is how a report whose statements follow different conventions is represented.
     language: Optional[str] # (optional) The language of the fact value, specified using the BCP 47 standard language code (e.g., "en" for English, "fr" for French).
@@ -67,22 +71,19 @@ class XbrlFactValue(XbrlObject):
     scale: Optional[int] # (optional) identifies a power of 10 to multiply source text number (such as when in billions in the source document_
     sign: Optional[str] # (optional) identifies a sign when not part of transformation of value. Not relevant for workbook cells with number or date formats specified.
     escape: Union[bool, DefaultFalse] # (optional) If the escape attribute is true then value is the escaped representation for media with markup, e.g. html or pdf, otherwise the concatenation in document order of all descendant text content. If no value is provided the attribute defaults to false.
-    valueSources: OrderedSet[XbrlFactValueSource] # (required if value not provided) An ordered set of factValueSource objects that identify where the values are obtained from content of an embedding or accompanying document file (html, pdf or tabular).
-    valueAnchors: OrderedSet[XbrlFactValueAnchor] # (optional if valueSources not provided) An ordered set of factAnchor objects that identify corresponding content of an embedding document file (html, pdf or tabular) for cases where the value is provided in the value property instead of obtained from the content of document file. For example, non-transformable values, such as a QName value, may correspond to prose text in the document file. Used by tools to highlight and detect mouse-over correspondence between fact values and document text.
-
-class XbrlFact(XbrlReportObject):
-    """ Fact Object
-        Reference: oim-taxonomy#fact-object
-    """
-    module: XbrlModuleAlias  # facts in taxonomy module are owned by the txmyMdl
-    name: QNameKeyType # (equired if no extends) The name is a QName that uniquely identifies the factspace object.
-    factValues: Optional[NonemptySet[XbrlFactValue]]
-    factDimensions: OptionalDict[QName, Any] # (optional) A dimensions object with properties corresponding to the members of the {dimensions} property.
-    factQualifier: OptionalDict[QName, Any] # (optional) A fact qualifier object, that indicates additional dimensional members that are valid for the fact.
+    valueSources: Optional[NonemptySet[XbrlFactValueSource]] # (optional) An ordered set of factValueSource objects identifying the document content corresponding to the value: the value is obtained from it when `value` is absent and the fact is not nil, otherwise it only locates that content.
+    dimensions: OptionalDict[QName, Any] # (optional) A dimensions object with properties corresponding to the members of the {dimensions} property.
+    qualifier: OptionalDict[QName, Any] # (optional) A fact qualifier object, that indicates additional dimensional members that are valid for the fact.
     properties: Optional[NonemptySet[XbrlProperty]] # (optional) an ordered set of property objects used to specify additional properties associated with the fact using the property object.
-    extends: Optional[QName] # (required if no name property) Names the fact object that is appended to. The fact values and dimensions of the fact with this property are appended to the end of the fact object with the name property. This property cannot be used in conjunction with the name property.
+    extends: Optional[QName] # (required if no name property) Names the fact object that is appended to. The value and properties of the fact with this property are appended to the fact object with the name property. This property cannot be used in conjunction with the name property.
     isExtensible: Union[bool, DefaultTrue] # (optional) If set to false, the fact is non-extensible and no importing taxonomy may augment it using extends. If set to true or omitted, the fact may be extended. The default value is true.
     _propertyMap: ClassVar[dict[type,dict[str, str]]] = {}
+
+    @property
+    def isNil(self) -> bool:
+        """True when the fact has the xbrl:nil property: it has no value, and any valueSources
+        only locate where it is displayed."""
+        return any(getattr(p, "property", None) == qnFactNilProperty for p in (self.properties or ()))
 
 class XbrlFootnote(XbrlReportObject):
     """ Footnote Object
@@ -150,7 +151,7 @@ class XbrlFactSource(XbrlReportObject):
     factNames: Optional[OrderedSet[QName]] # (optional) An ordered set of QNames that reference fact objects defined in the taxonomy model. If provided, the factSource object only applies to the facts with these names. If not provided, the factSource object applies to all facts in the report.
     hash: Optional[str] # (optional) A hash value that can be used to verify the integrity of the data source. The specific hashing algorithm used is not defined in the specification and may be determined by the implementation.
     metadata: Optional[XbrlFactSourceMetadata] # (optional) A metadata object that can contain any additional information about the fact source. The structure and content of the metadata object is not defined in the specification and may be determined by the implementation.
-    factIdentifierNamespacePrefix: Optional[str] # (optional) Namespace prefix (declared in documentInfo.namespaces) used for generated fact/factValue object names derived from this source; if absent the model's namespace prefix is used.
+    factIdentifierNamespacePrefix: Optional[str] # (optional) Namespace prefix (declared in documentInfo.namespaces) used for generated fact object names derived from this source; if absent the model's namespace prefix is used.
     properties: Optional[NonemptySet[XbrlProperty]] # (optional) an ordered set of property objects used to specify additional properties associated with the factSource using the property object.
 
 class XbrlTableTemplate(XbrlReportObject):

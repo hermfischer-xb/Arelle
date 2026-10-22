@@ -87,8 +87,11 @@ CUBE_FACTS_COLUMNS = ("object", "name", "kind", "value", "detail")
 KIND_PROPERTIES = ("cubeType", "dimension", "relationshipTypeName", "dataType",
                    "domainDataType", "root", "groupURI")
 
-# Columns the Facts pane shows in place of the factValues collection (see viewXbrlTaxonomyObject).
-FACT_VALUE_COLUMNS = (("value", str), ("decimals", int))
+# Fact properties that describe how the value was obtained or where it was displayed (formerly the
+# contents of a fact value object). The Facts pane shows a fact's value and decimals as columns but
+# not these, which the Properties pane shows (see viewXbrlTaxonomyObject).
+FACT_VALUE_DETAIL_PROPERTIES = ("roundingMode", "language", "reportSource", "transformation",
+                                "scale", "sign", "escape", "valueSources")
 
 # Column widths by column name; anything else gets DEFAULT_COLUMN_WIDTH (or NUMERIC_COLUMN_WIDTH
 # for a numeric property). Like every other Arelle view these are startup defaults only -- the
@@ -203,7 +206,7 @@ def findObjects(dialog, modelXbrl, pattern, isRE, isXP, options):
                 return str(getattr(prop, "value", ""))
         return ""
     def conceptQnOf(fact):
-        qn = (fact.factDimensions or {}).get(conceptCoreDim)
+        qn = (fact.dimensions or {}).get(conceptCoreDim)
         if isinstance(qn, str) and ":" in qn:
             qn = qname(qn, fact.module._prefixNamespaces)
         return qn
@@ -218,8 +221,8 @@ def findObjects(dialog, modelXbrl, pattern, isRE, isXP, options):
     if wantFact:
         for f in modelXbrl.filterNamedObjects(XbrlFact):
             cq = conceptQnOf(f)
-            dims = f.factDimensions or {}
-            values = [str(fv.value) for fv in (f.factValues or ()) if getattr(fv, "value", None) is not None]
+            dims = f.dimensions or {}
+            values = [str(f.value)] if f.value is not None else []
             unit = dims.get(unitCoreDim)
             if ((o.get("factName") and cq is not None and pattern.search(str(cq))) or
                 (o.get("factLabel") and cq is not None and pattern.search(label(cq))) or
@@ -250,13 +253,12 @@ def viewXbrlTaxonomyObject(xbrlCompMdl, objClass, tabWin, header, additionalView
         if view.propNameTypes and view.propNameTypes[0][0] == "name":
             view.propNameTypes.insert(0, ("label", str))
         if objClass is XbrlFact:
-            # a fact's value and decimals live on its factValue objects, but they are what a
-            # reader scans a fact list for, so they get columns of their own in place of the
-            # collection -- whose full contents the Properties pane shows as expandable rows
-            view.propNameTypes = [nameType
+            # a fact's value and decimals are what a reader scans a fact list for, so they keep
+            # columns of their own; how the value was obtained (sources, transformation, ...) is
+            # left to the Properties pane, which shows it as expandable rows
+            view.propNameTypes = [(propName, propType)
                                   for propName, propType in view.propNameTypes
-                                  for nameType in (FACT_VALUE_COLUMNS if propName == "factValues"
-                                                   else ((propName, propType),))]
+                                  if propName not in FACT_VALUE_DETAIL_PROPERTIES]
         # whatever propertyView reports that has no column of its own (an object's properties,
         # references, a fact's dimensions) is summarized here rather than being dropped
         view.propNameTypes.append(("detail", str))
@@ -366,7 +368,7 @@ class ViewXbrlTxmyObj(ViewWinTree.ViewTree):
         if isinstance(obj, XbrlFact):
             # a fact's name is a generated identifier (exp:f12345); a reader expects the label of
             # the concept it reports, which is its xbrl:concept dimension. The name is a column.
-            conceptQn = (obj.factDimensions or {}).get(conceptCoreDim)
+            conceptQn = (obj.dimensions or {}).get(conceptCoreDim)
             if isinstance(conceptQn, str) and ":" in conceptQn:
                 # dimension values are still prefixed strings until validation resolves them
                 # (ValidateFacts.resolveFactConcept); resolve a copy, never mutate from a view
@@ -397,7 +399,7 @@ class ViewXbrlTxmyObj(ViewWinTree.ViewTree):
            unit, etc. Used to cross-index a fact so selecting one of those objects reveals it, and
            to reveal one of them when the fact itself has no row in a pane. Period and entity
            dimension values are not named objects and resolve to nothing, so they are skipped."""
-        for dimVal in (fact.factDimensions or {}).values():
+        for dimVal in (fact.dimensions or {}).values():
             qn = dimVal
             if isinstance(qn, str) and ":" in qn:
                 qn = qname(qn, fact.module._prefixNamespaces)
@@ -405,13 +407,6 @@ class ViewXbrlTxmyObj(ViewWinTree.ViewTree):
                 memberObj = self.xbrlCompMdl.namedObjects.get(qn)
                 if memberObj is not None:
                     yield memberObj
-
-    def factValueCells(self, obj):
-        """(value, decimals) for a fact, gathered from its factValue objects -- usually one, but a
-           fact may carry several, so they are joined rather than showing only the first."""
-        factValues = obj.factValues or ()
-        return ("; ".join(str(fv.value) for fv in factValues if fv.value is not None),
-                "; ".join(str(fv.decimals) for fv in factValues if fv.decimals is not None))
 
     def kindProperty(self, obj):
         """The property that discriminates this object's row from rows of a different object
@@ -468,12 +463,15 @@ class ViewXbrlTxmyObj(ViewWinTree.ViewTree):
             # name and kind get dedicated columns below; don't repeat them in detail
             skipNames = tuple(propName for propName in ("name", self.kindProperty(obj)) if propName)
             if isinstance(obj, XbrlFact):
-                skipNames += ("factValues",) # shown as the value column (Cube Facts pane)
+                # shown as the value column (Cube Facts pane)
+                skipNames += ("value", "decimals") + FACT_VALUE_DETAIL_PROPERTIES
         elif isinstance(obj, XbrlFact):
-            skipNames = ("factValues",) # shown as the value and decimals columns instead
+            skipNames = FACT_VALUE_DETAIL_PROPERTIES # shown in the Properties pane
         cells, detail = self.rowValues(obj, skipNames, objLabel)
         if isinstance(obj, XbrlFact) and "value" in self.colNames:
-            cells["value"], cells["decimals"] = self.factValueCells(obj)
+            cells["value"] = "" if obj.value is None else str(obj.value)
+            if "decimals" in self.colNames:
+                cells["decimals"] = "" if obj.decimals is None else str(obj.decimals)
         if self.isStructuralPane:
             cells["object"] = objectTypeName(obj)
             cells["name"] = self.nameText(getattr(obj, "name", None))
@@ -699,7 +697,7 @@ class ViewXbrlTxmyObj(ViewWinTree.ViewTree):
         from .ValidateCubes import matchFactToCube
         mdl = self.xbrlCompMdl
         def conceptQn(fact):
-            qn = (fact.factDimensions or {}).get(conceptCoreDim)
+            qn = (fact.dimensions or {}).get(conceptCoreDim)
             return qname(qn, fact.module._prefixNamespaces) if isinstance(qn, str) and ":" in qn else qn
         factsByConcept = defaultdict(list)
         for fact in mdl.filterNamedObjects(XbrlFact):

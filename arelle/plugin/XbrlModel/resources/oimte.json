@@ -4480,13 +4480,13 @@
             {
                 "forObject": "oimte:factValueLocatorRequiredForValueSources",
                 "language": "en",
-                "value": "A factValue object with a 'valueSources' or 'valueAnchors' property must have a 'factLocatorType' defined in the factMap associated with the factSource.",
+                "value": "A fact object with a 'valueSources' property must have a 'factLocatorType' defined in the factMap associated with the factSource.",
                 "labelType": "xbrl:errorMessage"
             },
             {
                 "forObject": "oimte:factValueLocatorRequiredForValueSources",
                 "language": "en",
-                "value": "This error is raised when a factValue object uses 'valueSources' or 'valueAnchors' but no factLocatorType is specified in the factMap associated with the factSource. The 'factLocatorType' property, which references a factLocatorType object, must be provided in the factMap linked to the factSource. Without a factLocatorType, the processor cannot determine how to locate and extract the value from the source document.",
+                "value": "This error is raised when a fact object uses 'valueSources' but no factLocatorType is specified in the factMap associated with the factSource. The 'factLocatorType' property, which references a factLocatorType object, must be provided in the factMap linked to the factSource. Without a factLocatorType, the processor cannot determine how to locate and extract the value from the source document.",
                 "labelType": "xbrl:documentation"
             },
             {
@@ -4498,13 +4498,13 @@
             {
                 "forObject": "oimte:factSourceResolutionFailed",
                 "language": "en",
-                "value": "The factValueSource or factValueAnchor object does not specify a 'source' attribute, and the sourceMapping object contains multiple files. When multiple source files are defined, the 'source' attribute must be provided to identify which file to use.",
+                "value": "The factValueSource object does not specify a 'source' attribute, and the sourceMapping object contains multiple files. When multiple source files are defined, the 'source' attribute must be provided to identify which file to use.",
                 "labelType": "xbrl:errorMessage"
             },
             {
                 "forObject": "oimte:factSourceResolutionFailed",
                 "language": "en",
-                "value": "This error occurs when a factValueSource or factValueAnchor object specifies an 'id' property to reference content in a source document, but does not include a 'source' attribute to identify which document file to use. If the sourceMapping object in documentInfo contains only one file, that file is used by default. However, if sourceMapping contains multiple files (e.g., multiple HTML or PDF files), the 'source' attribute becomes mandatory to disambiguate which file contains the referenced ID. Without this disambiguation, the system cannot determine the correct source document, and this error is raised.",
+                "value": "This error occurs when a factValueSource object specifies an 'id' property to reference content in a source document, but does not include a 'source' attribute to identify which document file to use. If the sourceMapping object in documentInfo contains only one file, that file is used by default. However, if sourceMapping contains multiple files (e.g., multiple HTML or PDF files), the 'source' attribute becomes mandatory to disambiguate which file contains the referenced ID. Without this disambiguation, the system cannot determine the correct source document, and this error is raised.",
                 "labelType": "xbrl:documentation"
             },
             {
@@ -5440,7 +5440,7 @@
             {
                 "forObject": "oimte:invalidFactQualifierDimensionMember",
                 "language": "en",
-                "value": "This error is raised when a dimension QName appears in both the factDimensions object and the factQualifier object of the same fact. Fact qualifiers are used to report additional dimensional context that is not part of the cube space; therefore, a dimension that already defines the fact's position in the cube must not be repeated in the qualifier.",
+                "value": "This error is raised when a dimension QName appears in both the dimensions object and the qualifier object of the same fact. Fact qualifiers are used to report additional dimensional context that is not part of the cube space; therefore, a dimension that already defines the fact's position in the cube must not be repeated in the qualifier.",
                 "labelType": "xbrl:documentation"
             },
             {
@@ -7955,7 +7955,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "Fact defines exp:SegmentDimension in both factDimensions and factQualifier. A dimension must not appear in both objects for the same fact."
+                        "value": "Fact defines exp:SegmentDimension in both dimensions and qualifier. A dimension must not appear in both objects for the same fact."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -7985,7 +7985,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "Two facts share the same combined factDimensions and factQualifier dimensional combination but report different fact values. When combined qualifier and dimension pairs match a defined cube, all matching facts must have consistent values."
+                        "value": "Two facts share the same combined dimensions and qualifier dimensional combination but report different fact values. When combined qualifier and dimension pairs match a defined cube, all matching facts must have consistent values."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -18136,7 +18136,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "A factValue object uses 'valueSources' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
+                        "value": "A fact object uses 'valueSources' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -18166,7 +18166,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "A factValue object uses 'valueSources' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
+                        "value": "A fact object uses 'valueSources' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -20611,7 +20611,7 @@
                 ]
             },
             {
-                "name": "oimte:invalidEmptySetFactFactValuesReference",
+                "name": "oimte:invalidEmptySetFactValueSourcesReference",
                 "forObjects": [
                     "oimte:invalidEmptySet"
                 ],
@@ -20620,7 +20620,7 @@
                 "properties": [
                     {
                         "property": "xbrl:conformanceTestFileName",
-                        "value": "FACT-EmptyFactValues.json"
+                        "value": "FACT-EmptyValueSources.json"
                     },
                     {
                         "property": "xbrl:conformanceStatus",
@@ -20632,7 +20632,7 @@
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
-                        "value": "https://oim.ci.xbrl.org/oim/spec-dev-1/Specification/oim-taxonomy/WGWD-YYYY-MM-DD/oim-taxonomy-WGWD-YYYY-MM-DD.html#FACT-EmptyFactValues"
+                        "value": "https://oim.ci.xbrl.org/oim/spec-dev-1/Specification/oim-taxonomy/WGWD-YYYY-MM-DD/oim-taxonomy-WGWD-YYYY-MM-DD.html#FACT-EmptyValueSources"
                     }
                 ]
             },
@@ -22610,7 +22610,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "A factValue valueSource uses property xbrl:htmlDataAttribute, but the factLocatorType in use (xbrl:htmlElementLocatorType, resolved via factLocatorType on the sourceMappings entry) only permits xbrl:htmlElementId in its allowedProperties. The processor must raise oimte:disallowedObjectProperty."
+                        "value": "A fact valueSource uses property xbrl:htmlDataAttribute, but the factLocatorType in use (xbrl:htmlElementLocatorType, resolved via factLocatorType on the sourceMappings entry) only permits xbrl:htmlElementId in its allowedProperties. The processor must raise oimte:disallowedObjectProperty."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -22700,7 +22700,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "The factValue specifies transformation exp:unknownTransform, which does not resolve to any transform object in the model or its imports."
+                        "value": "The fact specifies transformation exp:unknownTransform, which does not resolve to any transform object in the model or its imports."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -22730,7 +22730,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "The factValue exp:fv1 defines a valueSources entry with an xbrl:htmlElementId property but no 'reportSource' property. The documentInfo.sourceMappings array contains three entries (exp:htmlSource, exp:htmlSource2, exp:htmlSource3). Per the File reference resolution rules, when sourceMappings contains more than one entry and no 'reportSource' property is specified, the processor MUST raise oimte:factSourceResolutionFailed."
+                        "value": "The fact defines a valueSources entry with an xbrl:htmlElementId property but no 'reportSource' property. The documentInfo.sourceMappings array contains three entries (exp:htmlSource, exp:htmlSource2, exp:htmlSource3). Per the File reference resolution rules, when sourceMappings contains more than one entry and no 'reportSource' property is specified, the processor MUST raise oimte:factSourceResolutionFailed."
                     }
                 ]
             },

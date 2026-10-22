@@ -161,7 +161,7 @@ def buildXbrlVocab(txmyMdl: XbrlCompiledModel, valueTokensOffset: int) -> Tuple[
         if factPosition._xValid >= VALID:
             f = factPosition.xbrlMdlObjIndex
             tokens = []
-            for qn, value in factPosition.factDimensions.items():
+            for qn, value in factPosition.dimensions.items():
                 dimObj = txmyMdl.namedObjects.get(qn)
                 if dimObj:
                     d = dimObj.xbrlMdlObjIndex
@@ -775,7 +775,7 @@ def buildAlignmentVectors(
             continue
 
         tokenIds: List[int] = []
-        for dimQn, value in fact.factDimensions.items():
+        for dimQn, value in fact.dimensions.items():
             if dimQn == conceptQn:
                 continue  # exclude concept — alignment should be concept-agnostic
 
@@ -898,7 +898,7 @@ def addFactsBatch(txmyMdl, facts: "Iterable[XbrlFact]", batchSize: int = 4096) -
         if getattr(fact, "_xValid", VALID) < VALID:
             continue
         tokens: List[int] = []
-        for qn, value in fact.factDimensions.items():
+        for qn, value in fact.dimensions.items():
             dimObj = txmyMdl.namedObjects.get(qn)
             if dimObj is None:
                 continue

@@ -609,44 +609,30 @@ def saveOIMFacts(
         if saveOimJson:
             factPositions[f"{fact.id or fact.objectIndex}"] = newFact = {}
             newFact["dimensions"] = factDims
-        elif fact.isNil:
-            # A nil fact gets a fact object of its own rather than joining a factspace: it
-            # contributes no fact value, and a duplicate that is nil in one occurrence and
-            # valued in another is two facts rather than one fact with two values (conformance
-            # NIL-DuplicateFactWithNilAndValue).
-            newFact = {
-                "name": f"{getPrefix(fact)}:fs_{fact.id or f'f{fact.objectIndex}'}",
-                "factDimensions": factDims,
-                "properties": [{"property": nilProperty, "value": unknownNilReason}],
-            }
-            factPositions.append(newFact)
         else:
-            # group facts that share identical dimensions into a single factSet (fs_) object,
-            # each contributing a fact value object to its factValues array
-            dimsKey = tuple(sorted(factDims.items(), key=lambda k: k[0]))
-            newFact = factspacesByDims.get(dimsKey)
-            if newFact is None:
-                newFact = {
-                    "name": f"{getPrefix(fact)}:fs_{fact.id or f'f{fact.objectIndex}'}",
-                    "factDimensions": factDims,
-                    "factValues": [],
-                }
-                factspacesByDims[dimsKey] = newFact
-                factPositions.append(newFact)
+            # One fact object per reported fact: a fact carries at most one value (the fact value
+            # object was collapsed into the fact), so occurrences of a data point with the same
+            # dimensions are duplicate facts rather than values of one fact. Named as the
+            # footnote relationships (srcName) and the inline loader name it.
+            newFact = {
+                "name": f"{getPrefix(fact)}:{fact.id or f'f{fact.objectIndex}'}",
+                "dimensions": factDims,
+            }
+            if fact.isNil:
+                newFact["properties"] = [{"property": nilProperty, "value": unknownNilReason}]
+            factPositions.append(newFact)
         return newFact
     
     def appendFactToFactspace(fact: ModelFact, newFact: dict[str, Any]) -> None:
-        factValue = None
         if not saveOimJson and fact.isNil:
-            return  # the nil property is on the fact object; there is no fact value
-        # only items with a resolved concept yield a fact value (skip tuples and, e.g. when the
+            return  # the nil property is on the fact object; it has no value
+        # only items with a resolved concept yield a value (skip tuples and, e.g. when the
         # taxonomy did not load, facts with an unresolved concept)
         if fact.concept is not None and fact.isItem:
+            # the fact object carries its value properties directly
+            factValue = newFact
             if saveOimJson:
-                factValue = newFact
                 factValue["name"] = f"{getPrefix(fact)}:{fact.id or f'f{fact.objectIndex}'}"
-            else:
-                factValue = {"name": f"{getPrefix(fact)}:{fact.id or f'f{fact.objectIndex}'}_val"}
             isInlineSource = (
                 isinstance(fact, ModelInlineFact)
                 and not any(True for e in fact.iterancestors("{http://www.xbrl.org/2013/inlineXBRL}hidden"))
@@ -682,7 +668,7 @@ def saveOIMFacts(
             elif isInlineSource:
                 # OIM Taxonomy (XbrlModel): a single fact value source object whose html element id
                 # locator lists the fact element followed by any ix:continuation element ids (the
-                # locator concatenates them). Transformation/scale/sign/escape are fact value properties.
+                # locator concatenates them). Transformation/scale/sign/escape are fact properties.
                 elementIds = [fact.id if fact.id else f"{fact.objectIndex}"]
                 if fact.concept.isTextBlock and saveInlineTextValue:
                     stringValues = [super(ModelFact, fact).stringValue]
@@ -696,7 +682,7 @@ def saveOIMFacts(
                     {"properties": [{"property": htmlElementIdProperty, "value": elementIds}]}
                 ]
                 if multiSource:
-                    factValue["source"] = sourceNameByBasename.get(fact.modelDocument.basename)
+                    factValue["reportSource"] = sourceNameByBasename.get(fact.modelDocument.basename)
                 if fact.format:
                     factValue["transformation"] = oimValue(fact.format)
                 if fact.scaleInt:
@@ -715,8 +701,6 @@ def saveOIMFacts(
                 _inferredDecimals = inferredDecimals(fact)
                 if not isinf(_inferredDecimals):  # accuracy omitted if infinite
                     factValue["decimals"] = _inferredDecimals
-        if not saveOimJson and factValue is not None:
-            newFact["factValues"].append(factValue)
 
     ixDocs = {}
     editedIxDocs = {}

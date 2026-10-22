@@ -3,7 +3,7 @@ See COPYRIGHT.md for copyright information.
 
 Fact-value resolution and locator-property registry.
 
-A ``factValue`` object may provide its value in two ways:
+A fact may provide its value in two ways:
 
 1. **Literal**: a ``value`` property whose string is validated against the
    concept's data type. This is the legacy / OIM-JSON path.
@@ -12,7 +12,10 @@ A ``factValue`` object may provide its value in two ways:
    ``xbrl:htmlDataAttribute``, PDF ``page`` + ``mcid``, tabular ``tabularPath``)
    to point at content of an external source document (HTML / PDF / tabular).
 
-The ``factLocatorType`` is resolved via the spec chain: factValue.reportSource →
+When a fact has a literal ``value``, its ``valueSources`` only locate the corresponding
+content: they are validated here, but the text they resolve to is not the fact's value.
+
+The ``factLocatorType`` is resolved via the spec chain: fact.reportSource →
 factSource → factMap → factMap.factLocatorType, identifying an
 ``XbrlFactLocatorType`` object that describes:
 
@@ -47,7 +50,7 @@ from arelle.ModelValue import QName, qname
 from .XbrlConst import xbrl as _XBRL_NS
 
 if TYPE_CHECKING:
-    from .XbrlFact import XbrlFact, XbrlFactValue, XbrlFactValueSource, XbrlFactLocatorType
+    from .XbrlFact import XbrlFact, XbrlFactValueSource, XbrlFactLocatorType
     from .XbrlModel import XbrlCompiledModel
 
 
@@ -119,13 +122,13 @@ def _customTransform(transformQn, compMdl):
 def _applyScaleAndSign(text: Optional[str],
                        scale: Optional[int],
                        sign: Optional[str]) -> Optional[str]:
-    """Apply ``factValue.scale`` (power of 10) and ``factValue.sign`` to a
+    """Apply ``fact.scale`` (power of 10) and ``fact.sign`` to a
     post-transformation numeric string. Returns ``text`` unchanged when both
     are absent or when ``text`` is not numeric.
 
     Per spec these adjustments are properties of ``valueSources`` resolution
     only (html / pdf / tabular) -- they are NOT applied to literal
-    ``factValue.value`` strings.
+    ``fact.value`` strings.
     """
     if text is None:
         return text
@@ -156,7 +159,7 @@ def _applyScaleAndSign(text: Optional[str],
 # Media-type resolver registry
 # --------------------------------------------------------------------
 
-#: Resolver signature: ``(factValueSource, locatorType, factValue, fact, compMdl)``
+#: Resolver signature: ``(factValueSource, locatorType, fact, compMdl)``
 #: returns the textual value extracted from the external source, or ``None``
 #: if the source is not currently accessible (treated as "deferred"; the
 #: caller skips data-type validation of the value but still raises any
@@ -186,7 +189,7 @@ class LocatorPropertyRegistry:
 
     Used to answer "for this ``factLocatorType`` QName, which properties
     must / may appear on a ``valueSource.properties`` list?" in O(1) per
-    fact-value, without re-walking the taxonomy.
+    fact, without re-walking the taxonomy.
     """
 
     __slots__ = ("_byName",)
@@ -219,10 +222,10 @@ def _registryFor(compMdl: "XbrlCompiledModel") -> LocatorPropertyRegistry:
 # factLocatorType resolution
 # --------------------------------------------------------------------
 #
-# Per spec (oim-taxonomy.md §2598), when a factValue uses valueSources,
+# Per spec (tavi.md "Fact object constraints"), when a fact uses valueSources,
 # the factLocatorType is found through this chain:
 #
-#   factValue.reportSource (or implied from sourceMappings)
+#   fact.reportSource (or implied from sourceMappings)
 #     → factSource object (matched by sourceMappings[*].sourceName)
 #       → factSource.factMapName → factMap object
 #         → factMap.factLocatorType → XbrlFactLocatorType object
@@ -232,19 +235,19 @@ def _registryFor(compMdl: "XbrlCompiledModel") -> LocatorPropertyRegistry:
 # --------------------------------------------------------------------
 
 def _resolveFactLocatorType(
-    factValue: "XbrlFactValue",
+    fact: "XbrlFact",
     compMdl: "XbrlCompiledModel",
 ) -> Tuple[Optional[QName], Optional[QName]]:
-    """Resolve the factLocatorType QName for a factValue that uses valueSources.
+    """Resolve the factLocatorType QName for a fact that uses valueSources.
 
-    Follows the spec chain: factValue.reportSource → factSource → factMap → factLocatorType.
+    Follows the spec chain: fact.reportSource → factSource → factMap → factLocatorType.
 
     Returns ``(factLocatorTypeQn, sourceQn)`` where factLocatorTypeQn is the
     QName of the XbrlFactLocatorType, or None if resolution fails.
     """
     from .XbrlFact import XbrlFactSource, XbrlFactMap
 
-    sourceQn = factValue.reportSource
+    sourceQn = fact.reportSource
 
     # If no explicit source, find default from sourceMappings
     if sourceQn is None:
@@ -282,7 +285,6 @@ def _resolveFactLocatorType(
 def validateAndResolveValueSources(
     compMdl: "XbrlCompiledModel",
     fact: "XbrlFact",
-    factValue: "XbrlFactValue",
 ) -> Tuple[bool, Optional[str]]:
     """Validate locator structure and (where possible) resolve external text.
 
@@ -291,13 +293,13 @@ def validateAndResolveValueSources(
       * ``deferred == True`` means the value is unresolvable in the current
         context (source document not present, resolver registered but media
         not accessible, etc.) and the caller should NOT run data-type
-        validation against ``factValue.value`` for this factValue.
+        validation against ``fact.value`` for this fact.
       * ``resolvedText`` is the extracted source text on success; ``None``
         otherwise.
 
     Errors raised here use these OIM-taxonomy codes:
 
-      * ``oimte:factValueLocatorRequiredForValueSources`` - factValue uses
+      * ``oimte:factValueLocatorRequiredForValueSources`` - fact uses
         ``valueSources`` but no ``factLocatorType`` could be resolved via
         the source → factSource → factMap → factLocatorType chain.
       * ``oimte:invalidQNameReference`` - ``factLocatorType`` QName does not
@@ -309,7 +311,7 @@ def validateAndResolveValueSources(
       * ``oimte:disallowedObjectProperty`` - a property was provided that is
         not in ``locatorType.allowedProperties`` (when that list is set).
     """
-    valueSources = getattr(factValue, "valueSources", None) or ()
+    valueSources = getattr(fact, "valueSources", None) or ()
     if not valueSources:
         return False, None
 
@@ -319,28 +321,26 @@ def validateAndResolveValueSources(
         allMappings.extend(getattr(module, "_sourceMappings", None) or ())
 
     # ---- source QName validation -------------------------------------------
-    factValueSourceQn = getattr(factValue, "reportSource", None)
+    factValueSourceQn = getattr(fact, "reportSource", None)
     if factValueSourceQn is not None:
         if not any(getattr(m, "sourceName", None) == factValueSourceQn for m in allMappings):
             compMdl.error(
                 "oimte:invalidQNameReference",
-                _("Fact %(fact)s factValue %(fv)s source %(src)s does not match any "
+                _("Fact %(fact)s source %(src)s does not match any "
                   "documentInfo.sourceMappings entry."),
                 xbrlObject=fact,
                 fact=getattr(fact, "name", None),
-                fv=getattr(factValue, "name", None),
                 src=factValueSourceQn,
             )
             return True, None
     elif len(allMappings) > 1:
-        # No source on factValue and multiple mappings -> ambiguous.
+        # No source on the fact and multiple mappings -> ambiguous.
         compMdl.error(
             "oimte:factSourceResolutionFailed",
-            _("Fact %(fact)s factValue %(fv)s does not specify a source and "
+            _("Fact %(fact)s does not specify a source and "
               "documentInfo.sourceMappings contains more than one entry."),
             xbrlObject=fact,
             fact=getattr(fact, "name", None),
-            fv=getattr(factValue, "name", None),
         )
         return True, None
 
@@ -351,7 +351,7 @@ def validateAndResolveValueSources(
     #   * a legacy inline-XBRL transformation registry function (ixt v1-v5),
     #     which is registered in arelle.FunctionIxt.ixtNamespaceFunctions and
     #     reusable here without re-implementing the transform tables.
-    transformQn = getattr(factValue, "transformation", None)
+    transformQn = getattr(fact, "transformation", None)
     if transformQn is not None:
         ns = getattr(transformQn, "namespaceURI", None)
         ln = getattr(transformQn, "localName", None)
@@ -366,24 +366,22 @@ def validateAndResolveValueSources(
         if not validTransform:
             compMdl.error(
                 "oimte:invalidQNameReference",
-                _("Fact %(fact)s factValue %(fv)s transformation %(t)s does not "
+                _("Fact %(fact)s transformation %(t)s does not "
                   "resolve to a known transformation."),
                 xbrlObject=fact,
                 fact=getattr(fact, "name", None),
-                fv=getattr(factValue, "name", None),
                 t=transformQn,
             )
             # Don't early-return; structural locator checks still apply.
 
-    locatorTypeQn, _sourceQn = _resolveFactLocatorType(factValue, compMdl)
+    locatorTypeQn, _sourceQn = _resolveFactLocatorType(fact, compMdl)
     if locatorTypeQn is None:
         compMdl.error(
             "oimte:factValueLocatorRequiredForValueSources",
-            _("Fact %(fact)s factValue %(fv)s uses valueSources but no factLocatorType "
+            _("Fact %(fact)s uses valueSources but no factLocatorType "
               "could be resolved via source → factSource → factMap → factLocatorType."),
             xbrlObject=fact,
             fact=getattr(fact, "name", None),
-            fv=getattr(factValue, "name", None),
         )
         return True, None
 
@@ -393,21 +391,19 @@ def validateAndResolveValueSources(
         if locatorTypeQn in getattr(compMdl, "namedObjects", {}):
             compMdl.error(
                 "oimte:invalidObjectType",
-                _("Fact %(fact)s factValue %(fv)s factLocatorType %(name)s does not "
+                _("Fact %(fact)s factLocatorType %(name)s does not "
                   "reference a factLocatorType object."),
                 xbrlObject=fact,
                 fact=getattr(fact, "name", None),
-                fv=getattr(factValue, "name", None),
                 name=locatorTypeQn,
             )
         else:
             compMdl.error(
                 "oimte:invalidQNameReference",
-                _("Fact %(fact)s factValue %(fv)s factLocatorType %(name)s does not "
+                _("Fact %(fact)s factLocatorType %(name)s does not "
                   "resolve to any factLocatorType object."),
                 xbrlObject=fact,
                 fact=getattr(fact, "name", None),
-                fv=getattr(factValue, "name", None),
                 name=locatorTypeQn,
             )
         return True, None
@@ -429,11 +425,10 @@ def validateAndResolveValueSources(
         if missing:
             compMdl.error(
                 "oimte:missingRequiredProperty",
-                _("Fact %(fact)s factValue %(fv)s valueSource is missing required "
+                _("Fact %(fact)s valueSource is missing required "
                   "properties %(missing)s for factLocatorType %(loc)s."),
                 xbrlObject=fact,
                 fact=getattr(fact, "name", None),
-                fv=getattr(factValue, "name", None),
                 missing=", ".join(str(p) for p in sorted(missing, key=str)),
                 loc=locatorTypeQn,
             )
@@ -443,11 +438,10 @@ def validateAndResolveValueSources(
             if disallowed:
                 compMdl.error(
                     "oimte:disallowedObjectProperty",
-                    _("Fact %(fact)s factValue %(fv)s valueSource has disallowed "
+                    _("Fact %(fact)s valueSource has disallowed "
                       "properties %(extra)s for factLocatorType %(loc)s."),
                     xbrlObject=fact,
                     fact=getattr(fact, "name", None),
-                    fv=getattr(factValue, "name", None),
                     extra=", ".join(str(p) for p in sorted(disallowed, key=str)),
                     loc=locatorTypeQn,
                 )
@@ -457,7 +451,7 @@ def validateAndResolveValueSources(
         resolver = getValueSourceResolver(mediaType)
         if resolver is not None:
             try:
-                text = resolver(source, locatorType, factValue, fact, compMdl)
+                text = resolver(source, locatorType, fact, compMdl)
             except Exception as e:  # resolver failures must never crash validation
                 compMdl.warning(
                     "arelle:factValueResolverFailed",
@@ -467,16 +461,16 @@ def validateAndResolveValueSources(
                 )
                 text = None
             if text is not None:
-                # Apply factValue.transformation (reuses the ixt registry from
+                # Apply fact.transformation (reuses the ixt registry from
                 # arelle.FunctionIxt -- same functions used by legacy iXBRL),
                 # then apply scale (power of 10) and sign. Per spec these
                 # adjustments apply only to values sourced from html/pdf/etc.
-                # via valueSources -- not to literal factValue.value.
+                # via valueSources -- not to literal fact.value.
                 resolvedText = applyTransformation(transformQn, text, compMdl)
                 resolvedText = _applyScaleAndSign(
                     resolvedText,
-                    getattr(factValue, "scale", None),
-                    getattr(factValue, "sign", None),
+                    getattr(fact, "scale", None),
+                    getattr(fact, "sign", None),
                 )
                 deferred = False
 
@@ -487,16 +481,16 @@ def validateAndResolveValueSources(
 # Source URL resolution (FileSource-based)
 # --------------------------------------------------------------------
 
-def _resolveSourceUrl(factValue, source, compMdl) -> Optional[str]:
-    """Find the URL associated with a factValue's source.
+def _resolveSourceUrl(fact, source, compMdl) -> Optional[str]:
+    """Find the URL associated with a fact's source.
 
-    Looks up ``factValue.reportSource`` (or the source-property on the
+    Looks up ``fact.reportSource`` (or the source-property on the
     valueSource itself) against each module's parsed ``_sourceMappings``
     list (built at load time from ``documentInfo.sourceMappings``).
     Returns the absolute or repo-relative URL string, or ``None`` if the
-    factValue does not designate any source mapping.
+    fact does not designate any source mapping.
     """
-    sourceQn = getattr(factValue, "reportSource", None) or getattr(source, "source", None)
+    sourceQn = getattr(fact, "reportSource", None) or getattr(source, "source", None)
     for module in compMdl.xbrlModels.values():
         mappings = getattr(module, "_sourceMappings", None) or ()
         for mapping in mappings:
@@ -580,7 +574,7 @@ def _htmlDocFor(compMdl, url) -> Optional[Tuple[Any, Dict[str, Any]]]:
     return parsed
 
 
-def _resolveHtmlValueSource(source, locatorType, factValue, fact, compMdl) -> Optional[str]:
+def _resolveHtmlValueSource(source, locatorType, fact, compMdl) -> Optional[str]:
     """HTML resolver: locate the configured element(s) in the source document
     and return their text content.
 
@@ -595,13 +589,13 @@ def _resolveHtmlValueSource(source, locatorType, factValue, fact, compMdl) -> Op
 
     Returns ``None`` when:
 
-      * no ``sourceMappings`` URL is bound to this factValue, or
+      * no ``sourceMappings`` URL is bound to this fact, or
       * the URL is not accessible via the model's FileSource, or
       * none of the locator properties match an element in the document.
 
     Callers treat ``None`` as "deferred" and skip data-type validation.
     """
-    url = _resolveSourceUrl(factValue, source, compMdl)
+    url = _resolveSourceUrl(fact, source, compMdl)
     if not url:
         return None
     props = _propertyValues(source)
@@ -711,14 +705,14 @@ registerValueSourceResolver("application/xhtml+xml", _resolveHtmlValueSource)
 _pdfExtractorCache: Dict[str, Any] = {}
 
 
-def _resolvePdfValueSource(source, locatorType, factValue, fact, compMdl) -> Optional[str]:
+def _resolvePdfValueSource(source, locatorType, fact, compMdl) -> Optional[str]:
     """PDF resolver: delegate to ``PdfTextExtractor`` for the three standard
     PDF locator properties (form field, mcid+page, structure-element id).
 
     Returns ``None`` when the companion PDF is not currently readable or when
     none of the locator properties matched.
     """
-    url = _resolveSourceUrl(factValue, source, compMdl)
+    url = _resolveSourceUrl(fact, source, compMdl)
     if not url:
         return None
     if not _fileSourceCanRead(compMdl, url):

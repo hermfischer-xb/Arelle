@@ -13,7 +13,7 @@ from .XbrlConst import unsupportedTypedDimensionDataTypes, qnXbrlMemberObj, xbrl
 
 # xbrl:nil property marks a fact whose value is absent (e.g. mapped from an
 # xBRL-XML xsi:nil="true" fact). Such facts carry no value to type-validate.
-qnFactNilProperty = QName("xbrl", xbrlNs, "nil")
+from .XbrlFact import qnFactNilProperty
 
 # xbrlr:pure is the domain value of the xbrl:unit dimension: oim-taxonomy "Unit dimension"
 # states that a unit of xbrlr:pure is equivalent to no unit, and that a numeric fact with no
@@ -62,13 +62,13 @@ def resolveFact(txmyMdl, txmyObj, fact):
                           _("Fact %(target)s is not extensible (isExtensible=false) and cannot be extended."),
                           xbrlObject=fact, name=extends, target=extends)
         return  # extension facts inherit dimensions; skip further resolution
-    if fact.factDimensions is None:
+    if fact.dimensions is None:
         return  # skip facts without dimensions
 
     name = fact.name
-    cQn = fact.factDimensions.get(conceptCoreDim)
+    cQn = fact.dimensions.get(conceptCoreDim)
     if isinstance(cQn, str) and ":" in cQn:
-        cQn = fact.factDimensions[conceptCoreDim] = qname(cQn, txmyObj._prefixNamespaces)
+        cQn = fact.dimensions[conceptCoreDim] = qname(cQn, txmyObj._prefixNamespaces)
     cObj = txmyMdl.namedObjects.get(cQn)
     if cObj is None:
         txmyMdl.error("oime:missingConceptDimension",
@@ -86,22 +86,21 @@ def resolveFact(txmyMdl, txmyObj, fact):
     if cDataType is None or not isinstance(cDataType, XbrlDataType):
         # presume this error would have been reported on validating loaded taxonomy model
         return
-    factIsNil = any(getattr(p, "property", None) == qnFactNilProperty
-                    for p in (fact.properties or ()))
-    for factValue in fact.factValues or ():
+    factIsNil = fact.isNil
+    # A fact has at most one value, carried either literally (`value`) or via `valueSources`
+    # pointing into an HTML/PDF/tabular source. Its resolved, typed value is kept in _xValue;
+    # fact._xValid stays the fact-level (dimensional) validity, as before the fact value object
+    # was collapsed into the fact.
+    if factIsNil and fact.value is None:
         # A nil fact carries no value; there is nothing to type-validate. A displayed nil fact's
-        # factValue only locates it (valueSources + xbrltt:fixed-empty), so its locator structure
+        # valueSources only locate it, so its locator structure
         # is checked but the resolved text is neither validated nor taken as a value -- nil-ness
         # comes from the xbrl:nil property, and calculations and duplicates rely on value None.
-        if factIsNil and factValue.value is None:
-            if factValue.valueSources:
-                from .FactValueResolver import validateAndResolveValueSources
-                validateAndResolveValueSources(txmyMdl, fact, factValue)
-            factValue._xValid = VALID
-            factValue._xValue = None
-            continue
-        # Step 6: factValue may carry its value either literally (`value` set) or
-        # externally via `valueSources` pointing into an HTML/PDF/tabular source.
+        if fact.valueSources:
+            from .FactValueResolver import validateAndResolveValueSources
+            validateAndResolveValueSources(txmyMdl, fact)
+        fact._xValue = None
+    elif fact.value is not None or fact.valueSources:
         # When valueSources are present, validate the locator-property structure
         # (and report `oimte:factValueLocatorRequiredForValueSources`,
         # `oimte:missingRequiredProperty`, `oimte:disallowedObjectProperty`,
@@ -109,43 +108,40 @@ def resolveFact(txmyMdl, txmyObj, fact):
         # and attempt resolution. When the source document isn't currently
         # accessible the resolution is treated as deferred and we skip data-type
         # validation of the unresolved value -- structural errors have already
-        # been emitted.
+        # been emitted. With a literal `value`, valueSources only locate the
+        # corresponding content and do not contribute to the value.
         deferred = False
         resolvedText = None
-        if factValue.valueSources:
+        if fact.valueSources:
             from .FactValueResolver import validateAndResolveValueSources
-            deferred, resolvedText = validateAndResolveValueSources(txmyMdl, fact, factValue)
-        if deferred and factValue.value is None:
-            factValue._xValid = VALID
-            factValue._xValue = resolvedText
+            deferred, resolvedText = validateAndResolveValueSources(txmyMdl, fact)
+        if deferred and fact.value is None:
+            fact._xValue = resolvedText
         else:
-            valueToValidate = factValue.value if factValue.value is not None else resolvedText
-            _valid, _value = validateValue(txmyMdl, txmyObj, factValue, valueToValidate, cDataType, f"/value", "oimte:factValueDataTypeMismatch")
-            factValue._xValid = _valid
-            factValue._xValue = _value
-        # When the factValue's text came from a valueSource (rather than a
-        # literal `value` field), mirror the resolved/transformed text into
-        # `factValue.value` so downstream consumers (e.g. Formula's
-        # FormulaValue.fromFact) that read `.value` see the same value they
-        # would for a literally-specified fact.
-        if factValue.value is None and resolvedText is not None:
-            factValue.value = resolvedText
+            valueToValidate = fact.value if fact.value is not None else resolvedText
+            _valid, fact._xValue = validateValue(txmyMdl, txmyObj, fact, valueToValidate, cDataType, f"/value", "oimte:factValueDataTypeMismatch")
+        # When the value came from valueSources (rather than a literal `value`
+        # field), mirror the resolved/transformed text into `fact.value` so
+        # downstream consumers (e.g. Formula's FormulaValue.fromFact) that read
+        # `.value` see the same value they would for a literally-specified fact.
+        if fact.value is None and resolvedText is not None:
+            fact.value = resolvedText
             # Remember that this value was DERIVED, not reported. In memory the two are the
             # same field so consumers need not care; in a serialized model they must not be
             # confused, so SaveModel emits the fact in its faithful form (value sources, no
             # value) and publishes the resolved value as derived content instead. Underscore-
             # prefixed, so it is transient and never serialized itself.
-            factValue._derivedValue = resolvedText
-        if factValue.language and cObj.isOimTextFactType(txmyMdl):
-            if not factValue.language.islower():
+            fact._derivedValue = resolvedText
+        if fact.language and cObj.isOimTextFactType(txmyMdl):
+            if not fact.language.islower():
                 txmyMdl.error("xbrlje:invalidLanguageCodeCase",
                               _("Language MUST be lower case: \"%(lang)s\", fact %(name)s, concept %(concept)s."),
-                              xbrlObject=fact, name=fact.name, lang=factValue.language, concept=cQn)
+                              xbrlObject=fact, name=fact.name, lang=fact.language, concept=cQn)
 
     if not name:
         error("oime:missingFactId", _("The name (name) MUST be present on fact."))
 
-    uStr = fact.factDimensions.get(unitCoreDim)
+    uStr = fact.dimensions.get(unitCoreDim)
     if isinstance(uStr, str):
         if cDataType.isNumeric(txmyMdl):
             if uStr == "xbrli:pure":
@@ -160,7 +156,7 @@ def resolveFact(txmyMdl, txmyObj, fact):
                 fact._xValid = INVALID
             else:
                 unitQnTuple = parseUnitString(uStr, fact, txmyObj, txmyMdl)
-                fact.factDimensions[unitCoreDim] = unitQnTuple
+                fact.dimensions[unitCoreDim] = unitQnTuple
                 if unitQnTuple[0] == (qnPureUnit,) and not unitQnTuple[1]:
                     # the pure unit is the value of an absent unit dimension; reporting it is an error
                     txmyMdl.error("oime:illegalPureUnit",
@@ -217,7 +213,7 @@ def resolveFact(txmyMdl, txmyObj, fact):
                           dataTypeSignature=signatureString(dtSignature))
             fact._xValid = INVALID
     updateDimVals = {} # compiled values
-    for dimName, dimVal in fact.factDimensions.items():
+    for dimName, dimVal in fact.dimensions.items():
         if not isinstance(dimName, QName):
             if not dimPropPattern.match(dimName):
                 txmyMdl.error("oime:unknownDimension",
@@ -244,7 +240,7 @@ def resolveFact(txmyMdl, txmyObj, fact):
                                   qname=dimName)
                 elif dimObj.isExplicitDimension:
                     if initialValidation and isinstance(dimVal, str) and ":" in dimVal:
-                        memQn = fact.factDimensions[dimName] = qname(dimVal, txmyObj._prefixNamespaces)
+                        memQn = fact.dimensions[dimName] = qname(dimVal, txmyObj._prefixNamespaces)
                         if memQn:
                             updateDimVals[dimName] = memQn
                     else: # already compiled into QName
@@ -293,7 +289,7 @@ def resolveFact(txmyMdl, txmyObj, fact):
                                           unitDataType=unitObj.dataType, factDataType=cObj.dataType)
         '''
     for dimName, dimVal in updateDimVals.items():
-        fact.factDimensions[dimName] = dimVal
+        fact.dimensions[dimName] = dimVal
 
 def validateFactPosition(txmyMdl, fact):
     """ Validate that fact is valid in at least one cube based on its dimensions.
@@ -303,9 +299,9 @@ def validateFactPosition(txmyMdl, fact):
     """
     def error(code, msg, **kwargs):
             emit_error(txmyMdl, code, msg, xbrlObject=fact, name=fact.name, **kwargs)
-    if not fact.factDimensions:
+    if not fact.dimensions:
         return
-    cQn = fact.factDimensions.get(conceptCoreDim)
+    cQn = fact.dimensions.get(conceptCoreDim)
     cObj = txmyMdl.namedObjects.get(cQn)
     if cObj is None or not isinstance(cObj, XbrlConcept):
         return
@@ -316,8 +312,8 @@ def validateFactPosition(txmyMdl, fact):
 
     # if period is provided statically, validate and then fit to cubes.
 
-    if periodCoreDim in fact.factDimensions:
-        per = fact.factDimensions[periodCoreDim]
+    if periodCoreDim in fact.dimensions:
+        per = fact.dimensions[periodCoreDim]
         if isinstance(per, str):
             if not periodPattern.match(per):
                 error("oime:invalidPeriodDimension",
@@ -344,7 +340,7 @@ def validateFactPosition(txmyMdl, fact):
                               start=_start, end=_end)
                 return
             try:
-                per = fact.factDimensions["_periodValue"] = timeInterval(per)
+                per = fact.dimensions["_periodValue"] = timeInterval(per)
             except Exception:
                 error("oime:invalidPeriodDimension",
                               _("The fact %(name)s has an unparseable period value %(period)s."),
@@ -360,7 +356,7 @@ def validateFactPosition(txmyMdl, fact):
     # only entity objects on xbrl:entity, and members must belong to the dimension's domain class.
     _prefixNS = getattr(getattr(fact, "module", None), "_prefixNamespaces", None)
     hasInvalidDimMember = False
-    for dimName, dimVal in list(fact.factDimensions.items()):
+    for dimName, dimVal in list(fact.dimensions.items()):
         if not isinstance(dimName, QName) or dimName in (conceptCoreDim, periodCoreDim, unitCoreDim):
             continue
         if dimName == entityCoreDim:
@@ -443,23 +439,21 @@ def validateFactPosition(txmyMdl, fact):
                 cellFacts = cubeObj._cellFacts = {}
             # cell signature = the cube's dimension values from this fact.
             # Many facts may collapse to the same cell; we retain per-cell
-            # references to fact (and each of its factValues) so that the
-            # cube-completion pass can perform duplicate-fact validation.
+            # references to each fact so that the cube-completion pass can
+            # perform duplicate-fact validation.
             cellKey = tuple(
-                (cubeDimObj.dimension, fact.factDimensions.get(cubeDimObj.dimension))
+                (cubeDimObj.dimension, fact.dimensions.get(cubeDimObj.dimension))
                 for cubeDimObj in cubeObj.cubeDimensions or ()
             )
+            # A nil fact (xbrl:nil property) is in its cell with no value, so duplicate-fact
+            # validation and calculations see a nil: a nil fact and a valued fact at the same
+            # cell are inconsistent duplicates. Consumers read a cell fact's value as None when
+            # fact.isNil, whether or not its valueSources locate where it is displayed.
+            # A fact with no value that is not nil still occupies its cell (completeness), but
+            # contributes no entry.
             bucket = cellFacts.setdefault(cellKey, [])
-            if any(getattr(p, "property", None) == qnFactNilProperty
-                   for p in (fact.properties or ())):
-                # A nil fact is nil by its xbrl:nil property, whether it has no factValue (native OIM)
-                # or a factValue that only locates where it is displayed. Represent it in the cell as
-                # a None factValue -> value None, so duplicate-fact validation and calculations see a
-                # nil: a nil fact and a valued fact at the same cell are inconsistent duplicates.
-                bucket.append((fact, None))
-            elif fact.factValues:
-                for fv in fact.factValues:
-                    bucket.append((fact, fv))
+            if fact.isNil or fact.value is not None or fact.valueSources:
+                bucket.append(fact)
 
 
 def validateCompleteReportCubes(txmyMdl):

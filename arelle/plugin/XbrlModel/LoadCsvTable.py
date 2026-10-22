@@ -17,7 +17,7 @@ from .XbrlConcept import XbrlConcept
 from .XbrlCube import (coreDimensionsByLocalname, coreDimensions,
                        conceptCoreDim, entityCoreDim, languageCoreDim)
 from .XbrlDimension import XbrlDimension, xbrlMemberObj
-from .XbrlFact import XbrlFact, XbrlFactValue, XbrlTableTemplate
+from .XbrlFact import XbrlFact, XbrlTableTemplate
 from .XbrlProperty import XbrlProperty
 from .LoadFactsCommon import qnNil, qnUnknownNilReason
 
@@ -490,9 +490,9 @@ def csvTableRowFacts(table, txmyMdl, error, warning, module, reportUrl=None): # 
                 factPositionObj.value = fact.get("value")
                 factPositionObj.decimals = None
                 factPositionObj.extends = None
-                factPositionObj.factQualifier = None
+                factPositionObj.qualifier = None
                 factPositionObj.properties = None
-                factPositionObj.factDimensions = {}
+                factPositionObj.dimensions = {}
                 dimensionsUsed = set()
                 cObj = None
                 for dim, val in fact["dimensions"].items():
@@ -513,12 +513,12 @@ def csvTableRowFacts(table, txmyMdl, error, warning, module, reportUrl=None): # 
                                       table=tableId, dimension=dim, value=val)
                                 continue
                             cObj = txmyMdl.namedObjects.get(valQn)
-                            factPositionObj.factDimensions[conceptCoreDim] = valQn
+                            factPositionObj.dimensions[conceptCoreDim] = valQn
                         elif coreQn == entityCoreDim:
                             valQn = qname(val, prefixNamespaces) if isinstance(val, str) and ":" in val else None
-                            factPositionObj.factDimensions[entityCoreDim] = valQn if valQn is not None else val
+                            factPositionObj.dimensions[entityCoreDim] = valQn if valQn is not None else val
                         else:  # period / unit / language keep their string representation
-                            factPositionObj.factDimensions[coreQn] = val
+                            factPositionObj.dimensions[coreQn] = val
                     else:
                         dimQn = qname(dim, prefixNamespaces)
                         if dimQn is None:
@@ -535,30 +535,21 @@ def csvTableRowFacts(table, txmyMdl, error, warning, module, reportUrl=None): # 
                                       _("Table %(table)s %(dimension)s value %(value)s target not in table columns, parameters or report parameters"),
                                       table=tableId, dimension=dimQn, value=val)
                                 continue
-                            factPositionObj.factDimensions[dimQn] = valQn
+                            factPositionObj.dimensions[dimQn] = valQn
                         else:  # typed dimension: value validated against a data type
-                            factPositionObj.factDimensions[dimQn] = val
+                            factPositionObj.dimensions[dimQn] = val
                 if isinstance(cObj, XbrlConcept):
                     # A nil fact (value None) MUST NOT carry a decimals property
                     # (oime:misplacedDecimalsProperty); only valued numeric facts do.
                     if cObj.isNumeric(txmyMdl) and fact.get("value") is not None:
                         factPositionObj.decimals = fact.get("decimals")
 
-                # Materialise a factValue so the fact participates in value validation and
+                # The fact carries its value, so it participates in value validation and
                 # duplicate-fact detection like the built-in fact-map loaders. A #nil cell
                 # yields value None + the xbrl:nil property (LoadFactsCommon.qnNil) so nil
                 # validation and duplicate detection recognise it.
-                fv = XbrlFactValue(xbrlMdlObjIndex=len(txmyMdl.xbrlObjects))
-                txmyMdl.xbrlObjects.append(fv)
-                fv.fact = factPositionObj
-                fv.name = qname(factId + "_fv", prefixNamespaces)
-                fv.value = factPositionObj.value
-                fv.decimals = factPositionObj.decimals
-                fv.language = factPositionObj.factDimensions.get(languageCoreDim)
-                fv.valueSources = None
-                fv.valueAnchors = None
-                factPositionObj.factValues = [fv]
-                if fv.value is None:
+                factPositionObj.language = factPositionObj.dimensions.get(languageCoreDim)
+                if factPositionObj.value is None:
                     nilProp = XbrlProperty()
                     nilProp.property = qnNil
                     nilProp.value = qnUnknownNilReason

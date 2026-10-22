@@ -11,7 +11,7 @@ export, licensing of copyrighted base taxonomies such as US-GAAP/IFRS):
               *interpret* the reported facts (their concepts, dimensions, members, units and
               the datatype closure of those), plus the labels/references attached to them.
               Presentation/structure objects (networks, cubes, groups, groupTree, headings)
-              are dropped -- a self-describing fact carries its own factDimensions.
+              are dropped -- a self-describing fact carries its own dimensions.
   * REPORT -- the semantic/consumable closure: the PRUNE closure PLUS the presentation
               networks and cubes that organise the reported facts, and the reporting-structure
               groups + groupTree that section them (with `includeNetworks=True`). Empty abstract
@@ -37,7 +37,7 @@ _FOROBJECT_CLASSES = frozenset({"XbrlLabel", "XbrlReference"})
 
 # Presentation / structure objects dropped in a partial model: they organise or lay out the
 # taxonomy but are not needed to interpret a self-describing fact (which carries its full
-# factDimensions). Networks touching retained concepts are re-added by REPORT mode (decision 4a).
+# dimensions). Networks touching retained concepts are re-added by REPORT mode (decision 4a).
 _DROP_CLASSES = frozenset({
     "XbrlDomainNetwork", "XbrlNetwork", "XbrlCube", "XbrlGroup",
     "XbrlGroupContent", "XbrlGroupTree", "XbrlHeading"})
@@ -62,8 +62,8 @@ _NETWORK_COLLECTIONS = ("networks", "domainNetworks", "groups", "cubes", "groupC
 
 def pruneClosure(txmyMdl, includeNetworks=False):
     """ Build the fact-reachability closure: the set of object QNames a consumer needs to
-        interpret the reported facts. Seeded from each fact's factDimensions / factQualifier
-        (dimensions + their concept/member/unit values) and factValue transforms, then expanded
+        interpret the reported facts. Seeded from each fact's dimensions / qualifier
+        (dimensions + their concept/member/unit values) and transformation, then expanded
         transitively over datatype, domain-class and unit-datatype references to a fixpoint.
 
         includeNetworks (REPORT mode, decision 4a): additionally retain any presentation /
@@ -148,7 +148,7 @@ def pruneClosure(txmyMdl, includeNetworks=False):
     # ---- seed from the reported facts ----
     for module in txmyMdl.xbrlModels.values():
         for fact in getattr(module, "facts", None) or ():
-            for dims in (fact.factDimensions, getattr(fact, "factQualifier", None)):
+            for dims in (fact.dimensions, fact.qualifier):
                 for dimKey, dimVal in (dims or {}).items():
                     add(dimKey) # the dimension object (core or explicit)
                     if isinstance(dimVal, str):
@@ -157,8 +157,7 @@ def pruneClosure(txmyMdl, includeNetworks=False):
                             add(vq) # concept / member / unit value
                     elif isinstance(dimVal, QName) and dimVal in named:
                         add(dimVal)
-            for factValue in getattr(fact, "factValues", None) or ():
-                add(getattr(factValue, "transformation", None))
+            add(fact.transformation)
     drain()
 
     # ---- types the retained content refers to ------------------------------------------
