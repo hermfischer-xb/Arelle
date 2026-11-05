@@ -235,7 +235,7 @@ class FormulaValue:
         if self.type == FormulaValueType.FACT:
             # Unwrap to the fact's value
             fact = self.value
-            if fact.value is not None or fact.valueSources:
+            if fact.value is not None or fact.sources:
                 raw = fact.value
                 if raw is None:
                     raise TypeError("Fact value is nil")

@@ -41,7 +41,7 @@
                 },
                 "sourceMappings": {
                     "type": "array",
-                    "description": "Set of fact source mapping objects that map fact source object QNames to their source document URL locations. Required when the model contains fact value source objects referencing external source files.",
+                    "description": "Set of fact source mapping objects that map fact source object QNames to their source document URL locations. Required when the model contains value source objects referencing external source files.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -1286,7 +1286,7 @@
                                         }
                                     }
                                 ],
-                                "description": "Literal fact value, when not derived from valueSources."
+                                "description": "Literal fact value, when not derived from the value source."
                             },
                             "decimals": {
                                 "oneOf": [
@@ -1313,38 +1313,9 @@
                                 "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
                                 "description": "Language of the fact value (BCP 47)."
                             },
-                            "reportSource": {
-                                "$ref": "#/definitions/QName",
-                                "description": "QName identifying the source document via the sourceMappings array of the documentInfo object. Applied to all valueSources entries on this fact when present."
-                            },
-                            "transformation": {
-                                "$ref": "#/definitions/QName",
-                                "xbrlType": "transformationQName",
-                                "description": "QName of a transformation to apply to extracted source text (e.g. locale date conversion). Applied to all valueSources entries unless overridden."
-                            },
-                            "scale": {
-                                "type": "integer",
-                                "description": "Power of 10 to multiply the extracted numeric value (e.g. 6 for millions). Applied to all valueSources entries."
-                            },
-                            "sign": {
-                                "type": "string",
-                                "enum": [
-                                    "-"
-                                ],
-                                "description": "Set to '-' if the extracted source value must be negated to produce the canonical fact value."
-                            },
-                            "escape": {
-                                "type": "boolean",
-                                "description": "If true, the value is the escaped representation for media with markup (html, xml); otherwise the concatenated descendant text content is used. Defaults to false."
-                            },
-                            "valueSources": {
-                                "type": "array",
-                                "description": "Ordered set of factValueSource objects identifying the content of an embedding or accompanying document file that corresponds to the fact. When 'value' is absent and the fact is not nil, the value is obtained from this content; otherwise the content only corresponds to the fact, for highlighting and mouse-over.",
-                                "items": {
-                                    "$ref": "#/definitions/factValueSourceObject"
-                                },
-                                "minItems": 1,
-                                "uniqueItems": true
+                            "valueSource": {
+                                "$ref": "#/definitions/valueSourceObject",
+                                "description": "The content of an embedding or accompanying document from which the value of the fact is obtained. When 'value' is present, or the fact is nil, it only identifies where the fact is displayed."
                             },
                             "dimensions": {
                                 "type": "object",
@@ -1389,7 +1360,6 @@
                                             }
                                         ]
                                     }
-                                   
                                 },
                                 "additionalProperties": false,
                                 "required": [
@@ -1459,67 +1429,109 @@
                                         "extends",
                                         "name"
                                     ]
-                                }
-                            ]
-                        },
-                        "if": {
-                            "anyOf": [
-                                {
-                                    "required": [
-                                        "decimals"
-                                    ]
                                 },
                                 {
                                     "required": [
-                                        "roundingMode"
-                                    ]
-                                },
-                                {
-                                    "required": [
-                                        "language"
-                                    ]
-                                },
-                                {
-                                    "required": [
-                                        "reportSource"
-                                    ]
-                                },
-                                {
-                                    "required": [
-                                        "transformation"
-                                    ]
-                                },
-                                {
-                                    "required": [
-                                        "scale"
-                                    ]
-                                },
-                                {
-                                    "required": [
-                                        "sign"
-                                    ]
-                                },
-                                {
-                                    "required": [
-                                        "escape"
-                                    ]
-                                }
-                            ]
-                        },
-                        "then": {
-                            "anyOf": [
-                                {
-                                    "required": [
+                                        "extends",
                                         "value"
                                     ]
                                 },
                                 {
                                     "required": [
-                                        "valueSources"
+                                        "extends",
+                                        "decimals"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "extends",
+                                        "roundingMode"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "extends",
+                                        "language"
+                                    ]
+                                },
+                                {
+                                    "required": [
+                                        "extends",
+                                        "valueSource"
                                     ]
                                 }
                             ]
                         },
+                        "allOf": [
+                            {
+                                "if": {
+                                    "anyOf": [
+                                        {
+                                            "required": [
+                                                "decimals"
+                                            ]
+                                        },
+                                        {
+                                            "required": [
+                                                "roundingMode"
+                                            ]
+                                        },
+                                        {
+                                            "required": [
+                                                "language"
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "then": {
+                                    "anyOf": [
+                                        {
+                                            "required": [
+                                                "value"
+                                            ]
+                                        },
+                                        {
+                                            "required": [
+                                                "valueSource"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "if": {
+                                    "required": [
+                                        "value",
+                                        "valueSource"
+                                    ]
+                                },
+                                "then": {
+                                    "properties": {
+                                        "valueSource": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "transformation"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "scale"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "sign"
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ],
                         "additionalProperties": false
                     },
                     "uniqueItems": true,
@@ -3597,13 +3609,52 @@
             ],
             "additionalProperties": false
         },
-        "factValueSourceObject": {
+        "valueSourceObject": {
             "type": "object",
-            "description": "Identifies a single contiguous fragment of a source document that corresponds to a fact. When the fact has no value and is not nil, the fragments contribute (by concatenation) to its value; otherwise they locate its content for highlighting and mouse-over. When the parent fact carries a locatorType and source, each entry need only supply the fragment-specific addressing properties. The legacy flat approach (medium, id, page, etc.) is also accepted for backward compatibility.",
+            "description": "Identifies the content of an embedding or accompanying information source from which the value of a fact is obtained: the concatenation, in order, of the content its sources identify, to which transformation, scale and sign are then applied. When the fact has a value, or is nil, it only identifies where the fact is displayed.",
+            "properties": {
+                "reportSource": {
+                    "$ref": "#/definitions/QName",
+                    "description": "QName identifying the source document via the sourceMappings array of the documentInfo object."
+                },
+                "transformation": {
+                    "$ref": "#/definitions/QName",
+                    "xbrlType": "transformationQName",
+                    "description": "QName of a transformation to apply to the concatenated source text (e.g. locale date conversion)."
+                },
+                "scale": {
+                    "type": "integer",
+                    "description": "Power of 10 to multiply the extracted numeric value (e.g. 6 for millions)."
+                },
+                "sign": {
+                    "type": "string",
+                    "enum": [
+                        "-"
+                    ],
+                    "description": "Set to '-' if the extracted source value must be negated to produce the canonical fact value."
+                },
+                "sources": {
+                    "type": "array",
+                    "description": "Ordered set of sourceLocator objects, each identifying one region of the source content.",
+                    "items": {
+                        "$ref": "#/definitions/sourceLocatorObject"
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                }
+            },
+            "required": [
+                "sources"
+            ],
+            "additionalProperties": false
+        },
+        "sourceLocatorObject": {
+            "type": "object",
+            "description": "Identifies one region of content in a source document, by the locator properties of the factLocatorType that applies to it.",
             "properties": {
                 "properties": {
                     "type": "array",
-                    "description": "Fragment-specific addressing properties validated against the requiredProperties and allowedProperties of the locatorType declared on the parent fact.",
+                    "description": "Locator properties validated against the requiredProperties and allowedProperties of the applicable factLocatorType.",
                     "items": {
                         "$ref": "#/definitions/propertyObject"
                     },

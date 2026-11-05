@@ -666,9 +666,9 @@ def saveOIMFacts(
                     factValue["value"] = "".join(stringValues)
                     del stringValues  # dereference big chunks of text
             elif isInlineSource:
-                # OIM Taxonomy (XbrlModel): a single fact value source object whose html element id
-                # locator lists the fact element followed by any ix:continuation element ids (the
-                # locator concatenates them). Transformation/scale/sign/escape are fact properties.
+                # OIM Taxonomy (XbrlModel): a value source with one source locator per element --
+                # the fact element, then any ix:continuation elements, in order -- whose content is
+                # concatenated to give the value (tavi "Value source object").
                 elementIds = [fact.id if fact.id else f"{fact.objectIndex}"]
                 if fact.concept.isTextBlock and saveInlineTextValue:
                     stringValues = [super(ModelFact, fact).stringValue]
@@ -678,22 +678,25 @@ def saveOIMFacts(
                     if fact.concept.isTextBlock and saveInlineTextValue:
                         stringValues.append(contElt.stringValue)
                     contElt = getattr(contElt, "_continuationElement", None)
-                factValue["valueSources"] = [
-                    {"properties": [{"property": htmlElementIdProperty, "value": elementIds}]}
-                ]
+                factValue["valueSource"] = valueSource = {}
                 if multiSource:
-                    factValue["reportSource"] = sourceNameByBasename.get(fact.modelDocument.basename)
-                if fact.format:
-                    factValue["transformation"] = oimValue(fact.format)
-                if fact.scaleInt:
-                    factValue["scale"] = fact.scaleInt
-                if fact.sign:
-                    factValue["sign"] = fact.sign
-                if fact.get("escape") in ("true", "1"):
-                    factValue["escape"] = True
+                    valueSource["reportSource"] = sourceNameByBasename.get(fact.modelDocument.basename)
                 if fact.concept.isTextBlock and saveInlineTextValue:
+                    # the value is given, so the value source only locates it: no transformation,
+                    # scale or sign beside a value
                     factValue["value"] = "".join(stringValues)
                     del stringValues  # dereference big chunks of text
+                else:
+                    if fact.format:
+                        valueSource["transformation"] = oimValue(fact.format)
+                    if fact.scaleInt:
+                        valueSource["scale"] = fact.scaleInt
+                    if fact.sign:
+                        valueSource["sign"] = fact.sign
+                valueSource["sources"] = [
+                    {"properties": [{"property": htmlElementIdProperty, "value": [elementId]}]}
+                    for elementId in elementIds
+                ]
             else:  # non-inline fact: literal value
                 if not fact.isNil:
                     factValue["value"] = str(oimValue(fact.xValue))

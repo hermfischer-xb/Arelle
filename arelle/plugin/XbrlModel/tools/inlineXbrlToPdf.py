@@ -6,7 +6,7 @@ THIS IS A PROOF OF CONCEPT.
 inlineXbrlToPdf — convert an Inline XBRL (1.1) report into a structurally
 tagged PDF whose PDF marked-content identifiers (MCIDs) are traceable back to
 the original inline facts, and rewrite an OIM-Taxonomy (XBRL Model) facts file
-so that each fact value's ``valueSources`` point at the PDF (page + MCID)
+so that each fact's ``valueSource`` points at the PDF (page + MCID)
 instead of the HTML element id.
 
 Motivation
@@ -20,7 +20,7 @@ fact-to-location traceability that the inline viewer provided is preserved.
 Pipeline (this tool performs steps 2-4; step 1 is ``saveOIMFacts``)
 -------------------------------------------------------------------
 1. ``saveOIMFacts`` loads the inline document through Arelle and writes an
-   OIM-Taxonomy facts file whose fact values carry ``valueSources`` using the
+   OIM-Taxonomy facts file whose facts carry a ``valueSource`` using the
    ``xbrl:htmlElementId`` locator (the inline fact element's ``id``).
 2. Render the same HTML to a tagged PDF with WeasyPrint, hooking its
    structure-tree builder to record ``htmlId -> [(page, mcid), ...]`` in
@@ -319,18 +319,37 @@ def renderTaggedPdfChrome(htmlPath: str, pdfPath: str, factIds: Set[str],
 # Facts-file rewrite: html locator -> pdf locator
 # --------------------------------------------------------------------------
 def _valued(fact: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The fact as the carrier of its value -- ``[fact]`` when it has a ``value`` or
-    ``valueSources``, else ``[]``. A fact carries its value and locators itself since the fact
-    value object was collapsed into it; a fact with neither (an undisplayed nil fact) has
-    nothing to locate."""
-    return [fact] if ("value" in fact or fact.get("valueSources")) else []
+    """The fact as the carrier of its value -- ``[fact]`` when it has a ``value`` or a
+    ``valueSource``, else ``[]``. A fact with neither (an undisplayed nil fact) has nothing to
+    locate."""
+    return [fact] if ("value" in fact or fact.get("valueSource")) else []
+
+
+def _sources(fact: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The source locators of a fact's value source (``valueSource.sources``), or ``[]``."""
+    return (fact.get("valueSource") or {}).get("sources") or []
+
+
+_NO_CHANGE = object()
+
+def _setLocation(fact: Dict[str, Any], reportSource=_NO_CHANGE, sources=_NO_CHANGE) -> None:
+    """Set the document (``reportSource``) and/or the ``sources`` of a fact's value source,
+    keeping its transformation, scale and sign and the spec's property order."""
+    valueSource = dict(fact.get("valueSource") or {})
+    if reportSource is not _NO_CHANGE:
+        valueSource["reportSource"] = reportSource
+    if sources is not _NO_CHANGE:
+        valueSource["sources"] = sources
+    fact["valueSource"] = {k: valueSource[k]
+                           for k in ("reportSource", "transformation", "scale", "sign", "sources")
+                           if k in valueSource}
 
 
 def _collectHtmlIds(factsDoc: Dict[str, Any]) -> Set[str]:
     ids: Set[str] = set()
     for fact in factsDoc.get("xbrlModel", {}).get("facts", []):
         for fv in _valued(fact):
-            for vs in fv.get("valueSources", []):
+            for vs in _sources(fv):
                 for prop in vs.get("properties", []):
                     if str(prop.get("property", "")).endswith("htmlElementId"):
                         val = prop.get("value")
@@ -388,7 +407,7 @@ def rewriteFacts(
 
     for fact in factsDoc.get("xbrlModel", {}).get("facts", []):
         for fv in _valued(fact):
-            valueSources = fv.get("valueSources")
+            valueSources = _sources(fv)
             if not valueSources:
                 continue
             stats["located"] += 1
@@ -403,7 +422,7 @@ def rewriteFacts(
             for hid in htmlIds:
                 pageMcids.extend(captured.get(hid, []))
             if pageMcids:
-                fv["valueSources"] = _pdfValueSources(pageMcids)
+                _setLocation(fv, sources=_pdfValueSources(pageMcids))
                 stats["rewritten"] += 1
             else:
                 # Not rendered (e.g. ix:hidden fact): drop the now-dangling html
@@ -411,7 +430,7 @@ def rewriteFacts(
                 # fact remains valid without a locator.
                 stats["unmapped"] += 1
                 if "value" in fv:
-                    del fv["valueSources"]
+                    fv.pop("valueSource", None)
     return stats
 
 
@@ -452,7 +471,7 @@ def convert(htmlPath: str, factsPath: str, pdfPath: str,
         raise ValueError(f"unknown engine {engine!r} (use 'chrome' or 'weasyprint')")
     print(f"      captured {len(captured)}/{len(factIds)} ids to PDF marked content")
 
-    print("[2/3] rewriting fact valueSources html -> pdf ...", flush=True)
+    print("[2/3] rewriting fact value sources html -> pdf ...", flush=True)
     stats = rewriteFacts(factsDoc, captured, os.path.basename(pdfPath))
     print(f"      located={stats['located']} rewritten={stats['rewritten']} "
           f"unmapped={stats['unmapped']}")

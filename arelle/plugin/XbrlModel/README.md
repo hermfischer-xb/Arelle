@@ -124,7 +124,7 @@ alignment writes into is `--alignInto`, and that choice is about who is running
 the tool rather than about the data — see §4.
 
 An inline-XBRL report can be paired with a PDF so that each fact knows **where it
-appears in the PDF**. That location is recorded on the fact's `valueSources`
+appears in the PDF**. That location is recorded in the source locators of the fact's `valueSource`
 using the PDF locator property types defined in
 `oim-taxonomy.md` (§ *Locator-specific property types* / *Fact locator types*).
 A viewer can then highlight the PDF region for a selected fact, and a resolver
@@ -146,8 +146,8 @@ They rewrite those locators to the target surface's: PDF page/MCID/bbox, or the
 `xbrlx:htmlElementPointer` / `htmlTextOffset` / `htmlTextQuote` triple for HTML5.
 
 **A fact keeps its form.** A fact with no `value` is derived from the text its
-`valueSources` locate; a `report`-mode save gives each fact its `value`, beside which
-the `valueSources` only locate it. The aligner rewrites the locators and leaves the
+`valueSource` locates; a `report`-mode save gives each fact its `value`, beside which
+the `valueSource` only locates it. The aligner rewrites the locators and leaves the
 value as it is. Align a `report`-mode
 model: its facts keep their filed values, so nothing has to be re-derived from
 the new surface's text, which for a PDF often does not parse back to the filed
@@ -314,8 +314,8 @@ For a preparer, `--taggingValueAuthority` selects what the filing asserts is the
 
 | | the fact carries | means |
 |---|---|---|
-| `document` (default) | `valueSources`, no value | the document text is authoritative; a consumer re-derives the value from it |
-| `value` | `value` + `valueSources` | the value is authoritative — imported from an accounting system, a prior filing, a spreadsheet — and the binding only locates it |
+| `document` (default) | `valueSource`, no value | the document text is authoritative; a consumer re-derives the value from it |
+| `value` | `value` + `valueSource` | the value is authoritative — imported from an accounting system, a prior filing, a spreadsheet — and the binding only locates it |
 
 A journal entry names its fact by the viewer's fact id. For a located fact that is
 `<reportIndex>-<htmlElementId>` and resolves against the model; for one the viewer could not
@@ -496,7 +496,7 @@ Facts panes also index each fact under its dimension members, so selecting a
 concept or unit reveals a fact that uses it, and selecting a fact reveals its
 concept in the Concepts pane and its unit in the Units pane. In the Properties
 pane a fact's dimensions are flat rows (no expanding per fact), followed by its
-`value`, `decimals`, any transformation, and the expandable `valueSources` locating
+`value`, `decimals`, and the expandable `valueSource` (transformation and source locators) locating
 the value in the source document — for an inline or PDF
 report, the html element id the fact was tagged from.
 

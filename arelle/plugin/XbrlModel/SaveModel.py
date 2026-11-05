@@ -13,7 +13,7 @@ oimSaveMode which overrides the modal):
                 dropping taxonomy objects (incl. all networks/cubes) not needed to interpret the
                 reported facts.
       report -- prune closure + presentation networks + cubes (those whose concept-domain lists a
-                reported concept) + facts rewritten to Form B (value + valueSources, which then only
+                reported concept) + facts rewritten to Form B (value + valueSource, which then only
                 locate the value; value resolved from source via FactValueResolver when needed).
 
 See the plugin header (XbrlModel/__init__.py) and SAVEMODEL_IMPLEMENTATION_PLAN.md for details.
@@ -306,7 +306,7 @@ def buildDocumentInfo(documentType, namespaces, sourceMappings):
     return docInfo
 
 def resolveMissingFactValues(txmyMdl):
-    """ REPORT tailoring pre-pass: for facts that carry valueSources but no computed value,
+    """ REPORT tailoring pre-pass: for facts that carry a valueSource but no computed value,
         resolve the source-document text via FactValueResolver so a pre-computed value can be
         emitted (both ixbrl-viewer and SEC ixviewer-plus read a pre-computed value; neither runs
         ix transforms). Returns {str(fact.name): resolvedText}; unresolvable ones are omitted.
@@ -315,7 +315,7 @@ def resolveMissingFactValues(txmyMdl):
     resolved = {}
     for module in txmyMdl.xbrlModels.values():
         for fact in getattr(module, "facts", None) or ():
-            if fact.value is None and fact.valueSources and fact.name is not None and not fact.isNil:
+            if fact.value is None and fact.sources and fact.name is not None and not fact.isNil:
                 try:
                     deferred, text = validateAndResolveValueSources(txmyMdl, fact)
                     if not deferred and text is not None:
@@ -326,25 +326,26 @@ def resolveMissingFactValues(txmyMdl):
 
 def tailorFactsToFormB(moduleDict, resolvedValues):
     """ REPORT tailoring: rewrite each fact to the single-source-of-truth Form B (value +
-        valueSources). With a value present the valueSources no longer supply it -- they only
-        locate the corresponding content (tavi.md "Fact value source object") -- so the document
-        text stops being the source of truth while the value stays locatable. A value absent but
-        resolved in the pre-pass is filled in; an unresolvable fact is left in Form A (valueSources
+        valueSource). With a value present the value source no longer supplies it -- it only
+        locates the corresponding content (tavi.md "Value source object") -- so the document text
+        stops being the source of truth while the value stays locatable. A value absent but
+        resolved in the pre-pass is filled in; an unresolvable fact is left in Form A (valueSource
         and no value) so it remains interpretable.
 
         Transformation, scale and sign apply only to text extracted from the sources, and are
-        prohibited beside a value, so they are dropped from a fact that carries one -- whether it
-        was resolved in the pre-pass or by validation (which mirrors it onto fact.value). Escape
-        stays: it says whether the value is escaped markup.
+        prohibited beside a value (tavi.md "Value source object constraints"), so they are dropped
+        from the value source of a fact that carries one -- whether it was resolved in the
+        pre-pass or by validation (which mirrors it onto fact.value).
     """
     for fact in moduleDict.get("facts", []):
         if "value" not in fact:
             resolved = resolvedValues.get(fact.get("name"))
             if resolved is not None:
                 fact["value"] = resolved
-        if "value" in fact and fact.get("valueSources"):
+        valueSource = fact.get("valueSource")
+        if "value" in fact and isinstance(valueSource, dict):
             for extractionProp in ("transformation", "scale", "sign"):
-                fact.pop(extractionProp, None)
+                valueSource.pop(extractionProp, None)
 
 def collectCubeContents(txmyMdl):
     """derivedContent.cubeContents: the fact objects whose dimensions match each cube.
@@ -401,7 +402,7 @@ def collectDerivedFactValues(txmyMdl):
     for module in txmyMdl.xbrlModels.values():
         for fact in getattr(module, "facts", None) or ():
             value = getattr(fact, "_derivedValue", None)
-            if value is None or not fact.valueSources or fact.name is None:
+            if value is None or not fact.sources or fact.name is None:
                 continue
             entry = OrderedDict((("factName", str(fact.name)),
                                  ("basis", "resolved"),
@@ -436,10 +437,10 @@ def derivedFactNames(derivedFactValues):
 
 def separateDerivedValues(moduleDict, derivedNames):
     """Drop the derived value from each serialized fact that publishes one as derived content.
-       The value sources remain, so the fact still says where its value comes from -- and with no
-       value they again supply it, rather than only locating it."""
+       The value source remains, so the fact still says where its value comes from -- and with no
+       value it again supplies it, rather than only locating it."""
     for fact in moduleDict.get("facts", []):
-        if fact.get("name") in derivedNames and fact.get("valueSources"):
+        if fact.get("name") in derivedNames and fact.get("valueSource"):
             fact.pop("value", None)
 
 
@@ -559,7 +560,7 @@ def saveFiles(cntlr, txmyMdl, fileName, saveMode="full", sourceUrlRewrite=None, 
                                    retained=retained, reportMode=reportMode, **kwargs)
                    for m in moduleObjs]
     derivedContent = buildDerivedContent(txmyMdl, fileExt=fileExt, **kwargs)
-    if reportMode: # rewrite facts to Form B (value + locating valueSources) before merging
+    if reportMode: # rewrite facts to Form B (value + locating valueSource) before merging
         # REPORT mode deliberately makes the value the single source of truth for a viewer
         # that reads one, so the derived value stays ON the fact and is not also published as
         # derived content -- it would be the same value twice, said two ways.

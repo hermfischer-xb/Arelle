@@ -46,8 +46,8 @@ formula parameter ``oimSaveMode`` (default ``full``):
   * ``report`` -- prune closure + viewer-tailored facts + presentation networks (decision 4a).
                   Each fact is rewritten to the single-source-of-truth Form B: a pre-computed
                   ``value`` (resolved from the source document via FactValueResolver when only
-                  ``valueSources`` were present) beside its ``valueSources``, which with a value
-                  present only locate it. Both ixbrl-viewer and SEC ixviewer-plus read a
+                  a ``valueSource`` was present) beside its ``valueSource``, which with a value
+                  present only locates it. Both ixbrl-viewer and SEC ixviewer-plus read a
                   pre-computed value, so this is the pragmatic viewer form. Networks/groups/headings
                   touching retained concepts, and cubes whose concept-domain lists a retained
                   concept, are re-included (pruneClosure includeNetworks) so the viewer can navigate

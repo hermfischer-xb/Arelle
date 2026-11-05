@@ -87,32 +87,36 @@ def resolveFact(txmyMdl, txmyObj, fact):
         # presume this error would have been reported on validating loaded taxonomy model
         return
     factIsNil = fact.isNil
-    # A fact has at most one value, carried either literally (`value`) or via `valueSources`
-    # pointing into an HTML/PDF/tabular source. Its resolved, typed value is kept in _xValue;
-    # fact._xValid stays the fact-level (dimensional) validity, as before the fact value object
-    # was collapsed into the fact.
-    if factIsNil and fact.value is None:
+    if factIsNil and fact.value is not None:
+        # tavi "Fact object constraints": a nil fact has no value. The fact is then treated as nil
+        # (its value is not validated, and cube cells read it as nil).
+        error("oimte:nilValueConflict",
+              _("The fact %(name)s has both the xbrl:nil property and a value."))
+    # A fact has at most one value, carried either literally (`value`) or obtained through its
+    # `valueSource` from an HTML/PDF/tabular source. Its resolved, typed value is kept in
+    # _xValue; fact._xValid stays the fact-level (dimensional) validity.
+    if factIsNil:
         # A nil fact carries no value; there is nothing to type-validate. A displayed nil fact's
-        # valueSources only locate it, so its locator structure
-        # is checked but the resolved text is neither validated nor taken as a value -- nil-ness
-        # comes from the xbrl:nil property, and calculations and duplicates rely on value None.
-        if fact.valueSources:
+        # value source only locates it, so its locator structure is checked but the resolved
+        # text is neither validated nor taken as a value -- nil-ness comes from the xbrl:nil
+        # property, and calculations and duplicates rely on value None.
+        if fact.sources:
             from .FactValueResolver import validateAndResolveValueSources
             validateAndResolveValueSources(txmyMdl, fact)
         fact._xValue = None
-    elif fact.value is not None or fact.valueSources:
-        # When valueSources are present, validate the locator-property structure
+    elif fact.value is not None or fact.sources:
+        # When a value source is present, validate the locator-property structure
         # (and report `oimte:factValueLocatorRequiredForValueSources`,
         # `oimte:missingRequiredProperty`, `oimte:disallowedObjectProperty`,
         # `oimte:invalidQNameReference` / `oimte:invalidObjectType` as needed)
         # and attempt resolution. When the source document isn't currently
         # accessible the resolution is treated as deferred and we skip data-type
         # validation of the unresolved value -- structural errors have already
-        # been emitted. With a literal `value`, valueSources only locate the
+        # been emitted. With a literal `value`, the value source only locates the
         # corresponding content and do not contribute to the value.
         deferred = False
         resolvedText = None
-        if fact.valueSources:
+        if fact.sources:
             from .FactValueResolver import validateAndResolveValueSources
             deferred, resolvedText = validateAndResolveValueSources(txmyMdl, fact)
         if deferred and fact.value is None:
@@ -120,7 +124,7 @@ def resolveFact(txmyMdl, txmyObj, fact):
         else:
             valueToValidate = fact.value if fact.value is not None else resolvedText
             _valid, fact._xValue = validateValue(txmyMdl, txmyObj, fact, valueToValidate, cDataType, f"/value", "oimte:factValueDataTypeMismatch")
-        # When the value came from valueSources (rather than a literal `value`
+        # When the value came from the value source (rather than a literal `value`
         # field), mirror the resolved/transformed text into `fact.value` so
         # downstream consumers (e.g. Formula's FormulaValue.fromFact) that read
         # `.value` see the same value they would for a literally-specified fact.
@@ -448,11 +452,11 @@ def validateFactPosition(txmyMdl, fact):
             # A nil fact (xbrl:nil property) is in its cell with no value, so duplicate-fact
             # validation and calculations see a nil: a nil fact and a valued fact at the same
             # cell are inconsistent duplicates. Consumers read a cell fact's value as None when
-            # fact.isNil, whether or not its valueSources locate where it is displayed.
+            # fact.isNil, whether or not its value source locates where it is displayed.
             # A fact with no value that is not nil still occupies its cell (completeness), but
             # contributes no entry.
             bucket = cellFacts.setdefault(cellKey, [])
-            if fact.isNil or fact.value is not None or fact.valueSources:
+            if fact.isNil or fact.value is not None or fact.sources:
                 bucket.append(fact)
 
 

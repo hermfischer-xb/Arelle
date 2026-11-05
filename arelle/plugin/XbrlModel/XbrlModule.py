@@ -21,7 +21,7 @@ from .XbrlLabel import XbrlLabel, XbrlLabelType
 from .XbrlNetwork import XbrlNetwork, XbrlRelationship, XbrlRelationshipType, XbrlRelationshipConstraint
 from .XbrlProperty import XbrlProperty, XbrlPropertyType
 from .XbrlReference import XbrlReference, XbrlReferenceType
-from .XbrlFact import XbrlFact, XbrlFactLocatorType, XbrlFactValueSource, XbrlFootnote, XbrlJSONTemplateMap, XbrlTableTemplate, XbrlFactSource, XbrlFactMap, XbrlXMLTemplateMap
+from .XbrlFact import XbrlFact, XbrlFactLocatorType, XbrlValueSource, XbrlSourceLocator, XbrlFootnote, XbrlJSONTemplateMap, XbrlTableTemplate, XbrlFactSource, XbrlFactMap, XbrlXMLTemplateMap
 from .XbrlModel import XbrlCompiledModel
 from .XbrlTransform import XbrlTransform
 from .XbrlUnit import XbrlUnit
@@ -153,7 +153,8 @@ referencableObjectTypes = {
 nonReferencableObjectTypes = {
         qname(xbrl, "xbrl:importTaxonomyObject"): XbrlImportTaxonomy,
         qname(xbrl, "xbrl:cubeDimensionObject"): XbrlCubeDimension,
-        qname(xbrl, "xbrl:factValueSourceObject"): XbrlFactValueSource,
+        qname(xbrl, "xbrl:valueSourceObject"): XbrlValueSource,
+        qname(xbrl, "xbrl:sourceLocatorObject"): XbrlSourceLocator,
         qname(xbrl, "xbrl:groupContentObject"): XbrlGroupContent,
         qname(xbrl, "xbrl:impliedObject"): XbrlImpliedObject,
         qname(xbrl, "xbrl:periodConstraintObject"): XbrlPeriodConstraint,

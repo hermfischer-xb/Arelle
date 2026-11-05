@@ -41,7 +41,7 @@
                 "dataType": "xbrlx:textSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -49,7 +49,7 @@
                 "dataType": "xbrlx:textSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -57,7 +57,7 @@
                 "dataType": "xbrlx:textOffsetSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -65,7 +65,7 @@
                 "dataType": "xbrlx:textOffsetSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -73,7 +73,7 @@
                 "dataType": "xbrlx:textSequence",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             }
         ],

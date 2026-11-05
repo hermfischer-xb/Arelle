@@ -177,7 +177,7 @@ def hasViewableSource(compMdl):
         return False
     for module in compMdl.xbrlModels.values():
         for fact in getattr(module, "facts", None) or ():
-            if fact.valueSources:
+            if fact.sources:
                 return True
     return False
 

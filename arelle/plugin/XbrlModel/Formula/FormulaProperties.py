@@ -1846,14 +1846,18 @@ def getProperty(
             return _wrap(getattr(fv, "name", None))
         if propName == "value":
             return FormulaValue.fromScalar(getattr(fv, "value", None))
-        if propName in ("decimals", "language", "scale", "sign", "escape"):
+        # the language's factValue properties; those about obtaining the value from a document
+        # are now properties of the fact's value source
+        vs = getattr(fv, "valueSource", None)
+        if propName in ("decimals", "language"):
             return _wrap(getattr(fv, propName, None))
+        if propName in ("scale", "sign"):
+            return _wrap(getattr(vs, propName, None))
         if propName in ("reportSource", "transformation"):
-            return _objValue(_mdlOf(fv, ctx), getattr(fv, propName, None))
+            return _objValue(_mdlOf(fv, ctx), getattr(vs, propName, None))
         if propName == "valueSources":
             return FormulaValue(FormulaValueType.LIST, [
-                FormulaValue.fromScalar(vs)
-                for vs in (getattr(fv, "valueSources", None) or ())])
+                FormulaValue.fromScalar(loc) for loc in (getattr(vs, "sources", None) or ())])
         raise FormulaRuntimeError(f"Unknown factValue property {propName!r}")
 
     if obj.type == FormulaValueType.DOMAIN_CLASS:

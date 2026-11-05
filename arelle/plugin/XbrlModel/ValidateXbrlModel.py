@@ -96,7 +96,7 @@ def validateRefDimensions(compMdl, module):
                     cQn = qname(cQn, prefixNs)
                 if cQn != sourceConcept:
                     continue
-                if fact.value is not None or fact.valueSources:
+                if fact.value is not None or fact.sources:
                     srcFactValues.append((fact, fact.value))
             if bool(refCubeDim.domainDataType):  # typed reference dimension
                 refTypedValues = set()
@@ -143,7 +143,7 @@ def validateFactQualifiers(compMdl, module):
         # internal helper keys (e.g. _periodValue) are derived from real dimensions and identical across
         # facts with the same period, so exclude them to compare on the declared dimensional pairs only
         effKey = frozenset((str(k), str(v)) for k, v in eff.items() if not str(k).startswith("_"))
-        vals = frozenset((str(fact.value),)) if (fact.value is not None or fact.valueSources) else frozenset()
+        vals = frozenset((str(fact.value),)) if (fact.value is not None or fact.sources) else frozenset()
         byEffKey[effKey].append((fact, vals, bool(factQual)))
     for effKey, entries in byEffKey.items():
         if len(entries) < 2:

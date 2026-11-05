@@ -21,7 +21,7 @@ qnFactNilProperty = QName("xbrl", xbrlNs, "nil")
 XbrlFactAlias: TypeAlias = "XbrlFact"
 
 def locatorPropertyView(locatorObj):
-    """Property view of a fact value source: its locator properties directly.
+    """Property view of a source locator: its locator properties directly.
 
     Such an object is nothing but its properties, so the default view -- a "properties" node
     wrapping them -- costs the reader an extra expansion for no information. List-valued
@@ -34,31 +34,45 @@ def locatorPropertyView(locatorObj):
                   else str(propObj.value))
                  for propObj in locatorObj.properties or ())
 
-class XbrlFactValueSource(XbrlObject):
-    """ Fact Value Source Object
-        Reference: oim-taxonomy#fact-value-source
+XbrlValueSourceAlias: TypeAlias = "XbrlValueSource"
+class XbrlSourceLocator(XbrlObject):
+    """ Source Locator Object
+        Reference: tavi#sec-source-locator
 
-        Identifies document content corresponding to the value of its fact. When the fact has no
-        ``value`` and is not nil, the sources supply the value (concatenated in order, then the
-        fact's transformation, scale and sign are applied); when the fact has a ``value``, or is
-        nil, they only locate the corresponding content (the role of the former fact value
-        anchor object).
+        One region of source content, identified by the locator properties of the fact locator
+        type that applies (an html element id; a pdf page with a marked-content id; an html5
+        element pointer with a text offset and quote).
     """
-    fact: XbrlFactAlias
+    valueSource: XbrlValueSourceAlias
     properties: OrderedSet[XbrlProperty] # (required) A set of property objects used to specify the interface properties defined by the locatorType for the fact source.
 
     @property
     def propertyView(self):
         return locatorPropertyView(self)
 
+class XbrlValueSource(XbrlObject):
+    """ Value Source Object
+        Reference: tavi#sec-value-source
+
+        The content from which the value of its fact is obtained: when the fact has no ``value``
+        and is not nil, the value is the concatenation, in order, of the content its ``sources``
+        identify, to which ``transformation``, ``scale`` and ``sign`` are then applied. When the
+        fact has a ``value``, or is nil, it only identifies where the fact is displayed.
+    """
+    fact: XbrlFactAlias
+    reportSource: Optional[QName] # (optional) The fact source object identifying the document the sources are in; when absent the single sourceMapping, or the document encapsulating the model, applies (tavi "File reference resolution").
+    transformation: Optional[QName] # (optional) A transform object reference converting the concatenated source text into the value.
+    scale: Optional[int] # (optional) A power of 10 by which the source number is multiplied (such as when shown in billions).
+    sign: Optional[str] # (optional) "-" if the resulting numerical value is negative.
+    sources: NonemptySet[XbrlSourceLocator] # (required) An ordered set of source locator objects, each identifying one region of the source content.
+
 class XbrlFact(XbrlReportObject):
     """ Fact Object
         Reference: oim-taxonomy#fact-object
 
-        A fact has at most one value: the properties of the former fact value object (value,
-        decimals, language, reportSource, transformation, scale, sign, escape, valueSources)
-        are properties of the fact. Several reported values for the same dimensions are several
-        fact objects (duplicate facts).
+        A fact has at most one value. It carries value, decimals and language itself; where and
+        how the value is obtained from a document is its optional ``valueSource``. Several
+        reported values for the same dimensions are several fact objects (duplicate facts).
     """
     module: XbrlModuleAlias  # facts in taxonomy module are owned by the txmyMdl
     name: QNameKeyType # (equired if no extends) The name is a QName that uniquely identifies the factspace object.
@@ -66,18 +80,18 @@ class XbrlFact(XbrlReportObject):
     decimals: Optional[int] # An integer providing the value of the {decimals} property, or absent if the value is infinitely precise or not applicable (for nil or non-numeric facts).
     roundingMode: Optional[str] # (optional) How this value was obtained from the value it represents, `roundToNearest` or `truncation`. Where absent the rounding mode of the XBRL model object declaring the fact applies, which is how a report whose statements follow different conventions is represented.
     language: Optional[str] # (optional) The language of the fact value, specified using the BCP 47 standard language code (e.g., "en" for English, "fr" for French).
-    reportSource: Optional[QName] # (optional) Identifies the source of the document file using a QName that represents a file such as a pdf file or html file. If no reportSource is provided the document file encapsulating the taxonomy (report) object is implied. If the model is external to the source file then the sourceMapping property of the documentInfo object is used to associate the model with a document file. A value only needs to be provided if there is more than one source file used to represent fact values.
-    transformation: Optional[QName] # (optional for html/pdf) identifes a transformation for the document file text, such as conversion from dates in some locale format. Not relevant for workbook cells with number or date formats specified.
-    scale: Optional[int] # (optional) identifies a power of 10 to multiply source text number (such as when in billions in the source document_
-    sign: Optional[str] # (optional) identifies a sign when not part of transformation of value. Not relevant for workbook cells with number or date formats specified.
-    escape: Union[bool, DefaultFalse] # (optional) If the escape attribute is true then value is the escaped representation for media with markup, e.g. html or pdf, otherwise the concatenation in document order of all descendant text content. If no value is provided the attribute defaults to false.
-    valueSources: Optional[NonemptySet[XbrlFactValueSource]] # (optional) An ordered set of factValueSource objects identifying the document content corresponding to the value: the value is obtained from it when `value` is absent and the fact is not nil, otherwise it only locates that content.
+    valueSource: Optional[XbrlValueSource] # (optional) Where and how the value of the fact is obtained from an embedding or accompanying document.
     dimensions: OptionalDict[QName, Any] # (optional) A dimensions object with properties corresponding to the members of the {dimensions} property.
     qualifier: OptionalDict[QName, Any] # (optional) A fact qualifier object, that indicates additional dimensional members that are valid for the fact.
     properties: Optional[NonemptySet[XbrlProperty]] # (optional) an ordered set of property objects used to specify additional properties associated with the fact using the property object.
-    extends: Optional[QName] # (required if no name property) Names the fact object that is appended to. The value and properties of the fact with this property are appended to the fact object with the name property. This property cannot be used in conjunction with the name property.
+    extends: Optional[QName] # (required if no name property) Names the fact object whose properties this one adds to. An extending fact adds properties only (not value, decimals, language or valueSource). This property cannot be used in conjunction with the name property.
     isExtensible: Union[bool, DefaultTrue] # (optional) If set to false, the fact is non-extensible and no importing taxonomy may augment it using extends. If set to true or omitted, the fact may be extended. The default value is true.
     _propertyMap: ClassVar[dict[type,dict[str, str]]] = {}
+
+    @property
+    def sources(self):
+        """The source locators of the fact's value source, or () when it has none."""
+        return self.valueSource.sources if self.valueSource is not None else ()
 
     @property
     def isNil(self) -> bool:

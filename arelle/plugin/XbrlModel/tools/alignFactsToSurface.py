@@ -24,7 +24,7 @@ Generating a PDF from the inline document (see ``inlineXbrlToPdf.py``) never
 looks as good as the filer's own PDF or an Acrobat conversion, and a company's
 public HTML5 annual report cannot be generated from the filing at all. This tool
 takes the good-looking rendering as given and *matches* the facts onto it,
-producing ``valueSources`` for it without any rendering:
+producing a ``valueSource`` for it without any rendering:
 
 1. **Visible facts** (fees, returns, prose) are matched by aligning the
    document-order word-token streams of the HTML and of the PDF marked content,
@@ -60,7 +60,7 @@ Usage
 
 ``--facts`` holds facts with ``xbrl:htmlElementId`` locators: a compiled model saved by
 ``--saveOIMmodel`` (best in ``report`` mode, where each fact keeps its value beside
-``valueSources`` that then only locate it), or the facts file from ``saveOIMFacts``. A fact keeps its form: the
+``valueSource`` that then only locates it), or the facts file from ``saveOIMFacts``. A fact keeps its form: the
 locators are rewritten where the fact has them. The PDF must be tagged (marked content) for the text path;
 the image path additionally needs the filing's image files next to the HTML.
 
@@ -850,8 +850,8 @@ def _derivedFactValue(fv: Dict[str, Any], valueSources: List[Dict[str, Any]],
     if sourceText is not None:
         entry["sourceText"] = sourceText
     for prop in ("transformation", "scale", "sign"):
-        if fv.get(prop) is not None:
-            entry[prop] = fv[prop]
+        if (fv.get("valueSource") or {}).get(prop) is not None:
+            entry[prop] = fv["valueSource"][prop]
     entry["valueSources"] = valueSources
     return entry
 
@@ -860,11 +860,30 @@ def _derivedFactValue(fv: Dict[str, Any], valueSources: List[Dict[str, Any]],
 # Driver
 # --------------------------------------------------------------------------
 def _valued(fact: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The fact as the carrier of its value -- ``[fact]`` when it has a ``value`` or
-    ``valueSources``, else ``[]``. A fact carries its value and locators itself since the fact
-    value object was collapsed into it; a fact with neither (an undisplayed nil fact) has
-    nothing to locate."""
-    return [fact] if ("value" in fact or fact.get("valueSources")) else []
+    """The fact as the carrier of its value -- ``[fact]`` when it has a ``value`` or a
+    ``valueSource``, else ``[]``. A fact with neither (an undisplayed nil fact) has nothing to
+    locate."""
+    return [fact] if ("value" in fact or fact.get("valueSource")) else []
+
+
+def _sources(fact: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The source locators of a fact's value source (``valueSource.sources``), or ``[]``."""
+    return (fact.get("valueSource") or {}).get("sources") or []
+
+
+_NO_CHANGE = object()
+
+def _setLocation(fact: Dict[str, Any], reportSource=_NO_CHANGE, sources=_NO_CHANGE) -> None:
+    """Set the document (``reportSource``) and/or the ``sources`` of a fact's value source,
+    keeping its transformation, scale and sign and the spec's property order."""
+    valueSource = dict(fact.get("valueSource") or {})
+    if reportSource is not _NO_CHANGE:
+        valueSource["reportSource"] = reportSource
+    if sources is not _NO_CHANGE:
+        valueSource["sources"] = sources
+    fact["valueSource"] = {k: valueSource[k]
+                           for k in ("reportSource", "transformation", "scale", "sign", "sources")
+                           if k in valueSource}
 
 
 def _collect_fact_html_ids(factsDoc):
@@ -873,7 +892,7 @@ def _collect_fact_html_ids(factsDoc):
     for fact in factsDoc.get("xbrlModel", {}).get("facts", []):
         for fv in _valued(fact):
             ids: List[str] = []
-            for vs in fv.get("valueSources", []) or []:
+            for vs in _sources(fv):
                 for p in vs.get("properties", []):
                     if str(p.get("property", "")).endswith("htmlElementId"):
                         v = p.get("value"); ids += v if isinstance(v, list) else [v]
@@ -1625,12 +1644,10 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                 page, bbox, vnorm = rowPlacement[rid]
                 mcs = mcByPageVal.get((page, vnorm))
                 if mcs and len(mcs) == 1:
-                    fv["reportSource"] = cSrc
-                    fv["valueSources"] = _content_sources([(page, mcs[0])])
+                    _setLocation(fv, cSrc, _content_sources([(page, mcs[0])]))
                     stats["content"] += 1
                 else:
-                    fv["reportSource"] = iSrc
-                    fv["valueSources"] = _bbox_source(page, bbox)
+                    _setLocation(fv, iSrc, _bbox_source(page, bbox))
                     stats["bbox"] += 1
                 stats["row"] += 1
                 continue
@@ -1649,19 +1666,16 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
                     if vn and mn and vn != mn and vn in mn:  # portion of a shared/coarse MCID
                         bboxLoc = geom.locate(pms[0][0], mcidText, valueText)
                 if bboxLoc is not None:
-                    fv["reportSource"] = iSrc
-                    fv["valueSources"] = _bbox_source(pms[0][0], bboxLoc)
+                    _setLocation(fv, iSrc, _bbox_source(pms[0][0], bboxLoc))
                     stats["bbox"] += 1
                 else:
-                    fv["reportSource"] = cSrc
-                    fv["valueSources"] = _content_sources(pms)
+                    _setLocation(fv, cSrc, _content_sources(pms))
                     stats["content"] += 1
                 continue
             # 3) phrase-locate (text blocks / addresses the token aligner skipped)
             phit = phraseByFV.get(id(fv))
             if phit:
-                fv["reportSource"] = cSrc
-                fv["valueSources"] = _content_sources(phit)
+                _setLocation(fv, cSrc, _content_sources(phit))
                 stats["phrase"] += 1
                 stats["content"] += 1
                 continue
@@ -1669,15 +1683,14 @@ def _rewrite(factsDoc, perFV, pmsByFV, imgLocByFactId, pdfBasename,
             loc = next((imgLocByFactId[i] for i in ids if i in imgLocByFactId), None)
             if loc is not None:
                 pg, bbox, h = loc
-                fv["reportSource"] = iSrc
-                fv["valueSources"] = _image_source(pg, bbox, h)
+                _setLocation(fv, iSrc, _image_source(pg, bbox, h))
                 stats["image"] += 1
                 continue
             # not located in the PDF: fall back to the retained html source
-            # (its original htmlElementId valueSources stay unchanged).
+            # (its original htmlElementId source locators stay unchanged).
             stats["unmapped"] += 1
             if htmlSrc is not None:
-                fv["reportSource"] = htmlSrc
+                _setLocation(fv, htmlSrc)
     return stats
 
 
@@ -1785,7 +1798,7 @@ def _rewriteHtml5(factsDoc, perFV, runsByFV, tgt, idIndex, targetBasename,
             if not pointers:
                 stats["unmapped"] += 1
                 if into == INTO_MODEL and htmlSrc is not None:
-                    fv["reportSource"] = htmlSrc
+                    _setLocation(fv, htmlSrc)
                 continue
             valueSources = [{"properties": [
                 {"property": HTML_ELEMENT_POINTER, "value": pointers},
@@ -1793,8 +1806,7 @@ def _rewriteHtml5(factsDoc, perFV, runsByFV, tgt, idIndex, targetBasename,
                 {"property": HTML_TEXT_QUOTE, "value": quotes},
             ]}]
             if into == INTO_MODEL:
-                fv["reportSource"] = tSrc
-                fv["valueSources"] = valueSources
+                _setLocation(fv, tSrc, valueSources)
             else:
                 # fragments concatenate with nothing between them (section 6): the quote is
                 # what a reviewer compares against the fact without re-resolving the pointer.

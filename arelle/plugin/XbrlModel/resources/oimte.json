@@ -191,6 +191,11 @@
                     },
                     {
                         "source": "oimte:OIMErrorClassDomain",
+                        "target": "oimte:nilValueConflict",
+                        "order": 28.5
+                    },
+                    {
+                        "source": "oimte:OIMErrorClassDomain",
                         "target": "oimte:factInconsistentWithFactQualifier",
                         "order": 19.2
                     },
@@ -1111,6 +1116,18 @@
             },
             {
                 "name": "oimte:invalidFactQualifierDimensionMember",
+                "domainClasses": [
+                    "oimte:OIMErrorClassDomain"
+                ],
+                "properties": [
+                    {
+                        "property": "xbrl:severity",
+                        "value": "error"
+                    }
+                ]
+            },
+            {
+                "name": "oimte:nilValueConflict",
                 "domainClasses": [
                     "oimte:OIMErrorClassDomain"
                 ],
@@ -4468,7 +4485,7 @@
             {
                 "forObject": "oimte:hrefIDNotFound",
                 "language": "en",
-                "value": "This error occurs when a fact value source specifies references an element ID that does not exist in the source document. The id attribute must specify a valid element ID in the referenced HTML or XML document. If the specified ID is not found, this error is generated.",
+                "value": "This error occurs when a source locator references an element ID that does not exist in the source document. The id attribute must specify a valid element ID in the referenced HTML or XML document. If the specified ID is not found, this error is generated.",
                 "labelType": "xbrl:documentation"
             },
             {
@@ -4480,13 +4497,13 @@
             {
                 "forObject": "oimte:factValueLocatorRequiredForValueSources",
                 "language": "en",
-                "value": "A fact object with a 'valueSources' property must have a 'factLocatorType' defined in the factMap associated with the factSource.",
+                "value": "A fact object with a 'valueSource' property must have a 'factLocatorType' defined in the factMap associated with the factSource.",
                 "labelType": "xbrl:errorMessage"
             },
             {
                 "forObject": "oimte:factValueLocatorRequiredForValueSources",
                 "language": "en",
-                "value": "This error is raised when a fact object uses 'valueSources' but no factLocatorType is specified in the factMap associated with the factSource. The 'factLocatorType' property, which references a factLocatorType object, must be provided in the factMap linked to the factSource. Without a factLocatorType, the processor cannot determine how to locate and extract the value from the source document.",
+                "value": "This error is raised when a fact object uses 'valueSource' but no factLocatorType is specified in the factMap associated with the factSource. The 'factLocatorType' property, which references a factLocatorType object, must be provided in the factMap linked to the factSource. Without a factLocatorType, the processor cannot determine how to locate and extract the value from the source document.",
                 "labelType": "xbrl:documentation"
             },
             {
@@ -4498,13 +4515,13 @@
             {
                 "forObject": "oimte:factSourceResolutionFailed",
                 "language": "en",
-                "value": "The factValueSource object does not specify a 'source' attribute, and the sourceMapping object contains multiple files. When multiple source files are defined, the 'source' attribute must be provided to identify which file to use.",
+                "value": "The valueSource object does not specify a 'reportSource' property, and the sourceMapping object contains multiple files. When multiple source files are defined, the 'source' attribute must be provided to identify which file to use.",
                 "labelType": "xbrl:errorMessage"
             },
             {
                 "forObject": "oimte:factSourceResolutionFailed",
                 "language": "en",
-                "value": "This error occurs when a factValueSource object specifies an 'id' property to reference content in a source document, but does not include a 'source' attribute to identify which document file to use. If the sourceMapping object in documentInfo contains only one file, that file is used by default. However, if sourceMapping contains multiple files (e.g., multiple HTML or PDF files), the 'source' attribute becomes mandatory to disambiguate which file contains the referenced ID. Without this disambiguation, the system cannot determine the correct source document, and this error is raised.",
+                "value": "This error occurs when a sourceLocator object specifies an 'id' property to reference content in a source document, but does not include a 'source' attribute to identify which document file to use. If the sourceMapping object in documentInfo contains only one file, that file is used by default. However, if sourceMapping contains multiple files (e.g., multiple HTML or PDF files), the 'source' attribute becomes mandatory to disambiguate which file contains the referenced ID. Without this disambiguation, the system cannot determine the correct source document, and this error is raised.",
                 "labelType": "xbrl:documentation"
             },
             {
@@ -5441,6 +5458,24 @@
                 "forObject": "oimte:invalidFactQualifierDimensionMember",
                 "language": "en",
                 "value": "This error is raised when a dimension QName appears in both the dimensions object and the qualifier object of the same fact. Fact qualifiers are used to report additional dimensional context that is not part of the cube space; therefore, a dimension that already defines the fact's position in the cube must not be repeated in the qualifier.",
+                "labelType": "xbrl:documentation"
+            },
+            {
+                "forObject": "oimte:nilValueConflict",
+                "language": "en",
+                "value": "Nil Value Conflict",
+                "labelType": "xbrl:label"
+            },
+            {
+                "forObject": "oimte:nilValueConflict",
+                "language": "en",
+                "value": "The fact '{name}' has both the xbrl:nil property and a value.",
+                "labelType": "xbrl:errorMessage"
+            },
+            {
+                "forObject": "oimte:nilValueConflict",
+                "language": "en",
+                "value": "This error is raised when a fact object has both a property of xbrl:nil and a value. A nil fact has no value, so a fact with the xbrl:nil property MUST NOT have a value, and a fact with a value MUST NOT have the xbrl:nil property.",
                 "labelType": "xbrl:documentation"
             },
             {
@@ -7960,6 +7995,36 @@
                     {
                         "property": "xbrl:specificationErrorURI",
                         "value": "https://oim.ci.xbrl.org/oim/spec-dev-1/Specification/oim-taxonomy/WGWD-YYYY-MM-DD/oim-taxonomy-WGWD-YYYY-MM-DD.html#FACT-InvalidFactQualifierDimensionMember"
+                    }
+                ]
+            },
+            {
+                "name": "oimte:nilValueConflictReference",
+                "forObjects": [
+                    "oimte:nilValueConflict"
+                ],
+                "referenceType": "xbrl:conformanceTestReference",
+                "language": "en",
+                "properties": [
+                    {
+                        "property": "xbrl:conformanceTestFileName",
+                        "value": "NIL-FactWithNilAndValue.json"
+                    },
+                    {
+                        "property": "xbrl:conformanceStatus",
+                        "value": "❌ Fail"
+                    },
+                    {
+                        "property": "xbrl:conformanceErrorsProduced",
+                        "value": "0"
+                    },
+                    {
+                        "property": "xbrl:conformanceTestDescription",
+                        "value": "A fact has the xbrl:nil property and also a value. A nil fact has no value."
+                    },
+                    {
+                        "property": "xbrl:specificationErrorURI",
+                        "value": "https://oim.ci.xbrl.org/oim/spec-dev-1/Specification/oim-taxonomy/WGWD-YYYY-MM-DD/oim-taxonomy-WGWD-YYYY-MM-DD.html#NIL-FactWithNilAndValue"
                     }
                 ]
             },
@@ -18136,7 +18201,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "A fact object uses 'valueSources' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
+                        "value": "A fact object uses 'valueSource' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -18166,7 +18231,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "A fact object uses 'valueSources' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
+                        "value": "A fact object uses 'valueSource' but no 'factLocatorType' is defined in the factMap associated with the factSource. The processor must raise oimte:factValueLocatorRequiredForValueSources."
                     },
                     {
                         "property": "xbrl:specificationErrorURI",
@@ -22730,7 +22795,7 @@
                     },
                     {
                         "property": "xbrl:conformanceTestDescription",
-                        "value": "The fact defines a valueSources entry with an xbrl:htmlElementId property but no 'reportSource' property. The documentInfo.sourceMappings array contains three entries (exp:htmlSource, exp:htmlSource2, exp:htmlSource3). Per the File reference resolution rules, when sourceMappings contains more than one entry and no 'reportSource' property is specified, the processor MUST raise oimte:factSourceResolutionFailed."
+                        "value": "The fact defines a valueSource with an xbrl:htmlElementId source locator but no 'reportSource' property. The documentInfo.sourceMappings array contains three entries (exp:htmlSource, exp:htmlSource2, exp:htmlSource3). Per the File reference resolution rules, when sourceMappings contains more than one entry and no 'reportSource' property is specified, the processor MUST raise oimte:factSourceResolutionFailed."
                     }
                 ]
             },

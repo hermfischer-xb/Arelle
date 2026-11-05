@@ -38,7 +38,7 @@ import io, json, os
 from arelle.ModelValue import QName
 
 from .XbrlConst import xbrl as xbrlNs
-from .XbrlFact import XbrlFactValueSource
+from .XbrlFact import XbrlValueSource, XbrlSourceLocator
 from .XbrlProperty import XbrlProperty
 
 # Version 2: entries name the bound occurrence by factName (a fact is one occurrence since the
@@ -93,7 +93,7 @@ def _factIndexes(compMdl):
             factName = getattr(fact, "name", None)
             if factName is not None:
                 byFactName[str(factName)] = fact
-            for source in fact.valueSources or ():
+            for source in fact.sources:
                 for prop in getattr(source, "properties", None) or ():
                     if getattr(prop, "property", None) == qnHtmlElementId:
                         value = prop.value
@@ -116,16 +116,19 @@ def _entryFactKey(factId):
     return rest if (sep and prefix.isdigit()) else text
 
 
-def _sourceObjectsFrom(entry, fact):
-    """The journal's `sources` as XbrlFactValueSource objects of `fact`.
+def _valueSourceFrom(entry, fact):
+    """The journal's `sources` as the value source of `fact`.
 
-    The tagger already writes them in fact-value-source form -- properties with a property
-    QName and a collection-typed value -- so this is an attach, not a translation.
+    The tagger already writes them in source-locator form -- properties with a property QName
+    and a collection-typed value -- so this is an attach, not a translation.
     """
-    sources = []
+    valueSource = XbrlValueSource()
+    valueSource.fact = fact
+    valueSource.reportSource = valueSource.transformation = valueSource.scale = valueSource.sign = None
+    valueSource.sources = sources = []
     for sourceDict in entry.get("sources") or ():
-        sourceObj = XbrlFactValueSource()
-        sourceObj.fact = fact
+        sourceObj = XbrlSourceLocator()
+        sourceObj.valueSource = valueSource
         sourceObj.properties = []
         for propDict in sourceDict.get("properties") or ():
             propObj = XbrlProperty()
@@ -133,7 +136,7 @@ def _sourceObjectsFrom(entry, fact):
             propObj.value = propDict.get("value")
             sourceObj.properties.append(propObj)
         sources.append(sourceObj)
-    return sources
+    return valueSource
 
 
 def applyJournal(cntlr, compMdl, journal, into=INTO_DERIVED, authority=AUTHORITY_DOCUMENT):
@@ -162,17 +165,17 @@ def applyJournal(cntlr, compMdl, journal, into=INTO_DERIVED, authority=AUTHORITY
         fact = found
         if into == INTO_MODEL:
             # the preparer's own content: the binding becomes the model's
-            fact.valueSources = _sourceObjectsFrom(entry, fact)
+            fact.valueSource = _valueSourceFrom(entry, fact)
             if authority == AUTHORITY_VALUE:
-                # the value is the point of truth and the value sources only locate it
+                # the value is the point of truth and the value source only locates it
                 fact.value = entry.get("factValue")
             else:
-                # the document is the point of truth: the value sources supply the value
+                # the document is the point of truth: the value source supplies the value
                 fact.value = None
                 derivation = entry.get("derivation") or {}
                 for name in ("scale", "sign", "transformation"):
                     if derivation.get(name) is not None:
-                        setattr(fact, name, derivation[name])
+                        setattr(fact.valueSource, name, derivation[name])
         else:
             # somebody else's report: the binding is ours, not theirs
             bound.append({"factName": str(fact.name),

@@ -1862,7 +1862,7 @@
                 "dataType": "xbrlr:stringCollection",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1870,7 +1870,7 @@
                 "dataType": "xbrlr:stringCollection",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1878,7 +1878,7 @@
                 "dataType": "xs:boolean",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1886,7 +1886,7 @@
                 "dataType": "xs:string",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1894,7 +1894,7 @@
                 "dataType": "xs:string",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1902,7 +1902,7 @@
                 "dataType": "xs:integer",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1910,7 +1910,7 @@
                 "dataType": "xbrlr:stringCollection",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1918,7 +1918,7 @@
                 "dataType": "xs:string",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1926,7 +1926,7 @@
                 "dataType": "xs:boolean",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             },
             {
@@ -1934,7 +1934,7 @@
                 "dataType": "xs:string",
                 "definitional": false,
                 "allowedObjects": [
-                    "xbrl:factValueSourceObject"
+                    "xbrl:sourceLocatorObject"
                 ]
             }
         ],

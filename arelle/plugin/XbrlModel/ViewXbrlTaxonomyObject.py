@@ -90,8 +90,7 @@ KIND_PROPERTIES = ("cubeType", "dimension", "relationshipTypeName", "dataType",
 # Fact properties that describe how the value was obtained or where it was displayed (formerly the
 # contents of a fact value object). The Facts pane shows a fact's value and decimals as columns but
 # not these, which the Properties pane shows (see viewXbrlTaxonomyObject).
-FACT_VALUE_DETAIL_PROPERTIES = ("roundingMode", "language", "reportSource", "transformation",
-                                "scale", "sign", "escape", "valueSources")
+FACT_VALUE_DETAIL_PROPERTIES = ("roundingMode", "language", "valueSource")
 
 # Column widths by column name; anything else gets DEFAULT_COLUMN_WIDTH (or NUMERIC_COLUMN_WIDTH
 # for a numeric property). Like every other Arelle view these are startup defaults only -- the

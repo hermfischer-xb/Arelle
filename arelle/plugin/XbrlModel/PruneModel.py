@@ -157,7 +157,8 @@ def pruneClosure(txmyMdl, includeNetworks=False):
                             add(vq) # concept / member / unit value
                     elif isinstance(dimVal, QName) and dimVal in named:
                         add(dimVal)
-            add(fact.transformation)
+            if fact.valueSource is not None:
+                add(fact.valueSource.transformation)
     drain()
 
     # ---- types the retained content refers to ------------------------------------------

@@ -7,15 +7,15 @@ A fact may provide its value in two ways:
 
 1. **Literal**: a ``value`` property whose string is validated against the
    concept's data type. This is the legacy / OIM-JSON path.
-2. **External**: one or more ``valueSources`` objects whose ``properties`` use
+2. **External**: a ``valueSource`` whose ``sources`` (source locator objects) use
    locator properties (e.g. ``xbrl:htmlElementId``,
    ``xbrl:htmlDataAttribute``, PDF ``page`` + ``mcid``, tabular ``tabularPath``)
    to point at content of an external source document (HTML / PDF / tabular).
 
-When a fact has a literal ``value``, its ``valueSources`` only locate the corresponding
+When a fact has a literal ``value``, its ``valueSource`` only locates the corresponding
 content: they are validated here, but the text they resolve to is not the fact's value.
 
-The ``factLocatorType`` is resolved via the spec chain: fact.reportSource →
+The ``factLocatorType`` is resolved via the spec chain: fact.valueSource.reportSource →
 factSource → factMap → factMap.factLocatorType, identifying an
 ``XbrlFactLocatorType`` object that describes:
 
@@ -50,7 +50,7 @@ from arelle.ModelValue import QName, qname
 from .XbrlConst import xbrl as _XBRL_NS
 
 if TYPE_CHECKING:
-    from .XbrlFact import XbrlFact, XbrlFactValueSource, XbrlFactLocatorType
+    from .XbrlFact import XbrlFact, XbrlSourceLocator, XbrlFactLocatorType
     from .XbrlModel import XbrlCompiledModel
 
 
@@ -122,11 +122,11 @@ def _customTransform(transformQn, compMdl):
 def _applyScaleAndSign(text: Optional[str],
                        scale: Optional[int],
                        sign: Optional[str]) -> Optional[str]:
-    """Apply ``fact.scale`` (power of 10) and ``fact.sign`` to a
+    """Apply ``valueSource.scale`` (power of 10) and ``valueSource.sign`` to a
     post-transformation numeric string. Returns ``text`` unchanged when both
     are absent or when ``text`` is not numeric.
 
-    Per spec these adjustments are properties of ``valueSources`` resolution
+    Per spec these adjustments are properties of ``valueSource`` resolution
     only (html / pdf / tabular) -- they are NOT applied to literal
     ``fact.value`` strings.
     """
@@ -222,10 +222,10 @@ def _registryFor(compMdl: "XbrlCompiledModel") -> LocatorPropertyRegistry:
 # factLocatorType resolution
 # --------------------------------------------------------------------
 #
-# Per spec (tavi.md "Fact object constraints"), when a fact uses valueSources,
+# Per spec (tavi.md "Value source object constraints"), when a fact has a valueSource,
 # the factLocatorType is found through this chain:
 #
-#   fact.reportSource (or implied from sourceMappings)
+#   fact.valueSource.reportSource (or implied from sourceMappings)
 #     → factSource object (matched by sourceMappings[*].sourceName)
 #       → factSource.factMapName → factMap object
 #         → factMap.factLocatorType → XbrlFactLocatorType object
@@ -238,16 +238,16 @@ def _resolveFactLocatorType(
     fact: "XbrlFact",
     compMdl: "XbrlCompiledModel",
 ) -> Tuple[Optional[QName], Optional[QName]]:
-    """Resolve the factLocatorType QName for a fact that uses valueSources.
+    """Resolve the factLocatorType QName for a fact that has a valueSource.
 
-    Follows the spec chain: fact.reportSource → factSource → factMap → factLocatorType.
+    Follows the spec chain: fact.valueSource.reportSource → factSource → factMap → factLocatorType.
 
     Returns ``(factLocatorTypeQn, sourceQn)`` where factLocatorTypeQn is the
     QName of the XbrlFactLocatorType, or None if resolution fails.
     """
     from .XbrlFact import XbrlFactSource, XbrlFactMap
 
-    sourceQn = fact.reportSource
+    sourceQn = fact.valueSource.reportSource if fact.valueSource is not None else None
 
     # If no explicit source, find default from sourceMappings
     if sourceQn is None:
@@ -300,7 +300,7 @@ def validateAndResolveValueSources(
     Errors raised here use these OIM-taxonomy codes:
 
       * ``oimte:factValueLocatorRequiredForValueSources`` - fact uses
-        ``valueSources`` but no ``factLocatorType`` could be resolved via
+        a ``valueSource`` but no ``factLocatorType`` could be resolved via
         the source → factSource → factMap → factLocatorType chain.
       * ``oimte:invalidQNameReference`` - ``factLocatorType`` QName does not
         resolve to a ``XbrlFactLocatorType`` object.
@@ -311,7 +311,8 @@ def validateAndResolveValueSources(
       * ``oimte:disallowedObjectProperty`` - a property was provided that is
         not in ``locatorType.allowedProperties`` (when that list is set).
     """
-    valueSources = getattr(fact, "valueSources", None) or ()
+    valueSource = fact.valueSource
+    valueSources = valueSource.sources if valueSource is not None else ()
     if not valueSources:
         return False, None
 
@@ -321,7 +322,7 @@ def validateAndResolveValueSources(
         allMappings.extend(getattr(module, "_sourceMappings", None) or ())
 
     # ---- source QName validation -------------------------------------------
-    factValueSourceQn = getattr(fact, "reportSource", None)
+    factValueSourceQn = valueSource.reportSource
     if factValueSourceQn is not None:
         if not any(getattr(m, "sourceName", None) == factValueSourceQn for m in allMappings):
             compMdl.error(
@@ -351,7 +352,7 @@ def validateAndResolveValueSources(
     #   * a legacy inline-XBRL transformation registry function (ixt v1-v5),
     #     which is registered in arelle.FunctionIxt.ixtNamespaceFunctions and
     #     reusable here without re-implementing the transform tables.
-    transformQn = getattr(fact, "transformation", None)
+    transformQn = valueSource.transformation
     if transformQn is not None:
         ns = getattr(transformQn, "namespaceURI", None)
         ln = getattr(transformQn, "localName", None)
@@ -378,7 +379,7 @@ def validateAndResolveValueSources(
     if locatorTypeQn is None:
         compMdl.error(
             "oimte:factValueLocatorRequiredForValueSources",
-            _("Fact %(fact)s uses valueSources but no factLocatorType "
+            _("Fact %(fact)s has a valueSource but no factLocatorType "
               "could be resolved via source → factSource → factMap → factLocatorType."),
             xbrlObject=fact,
             fact=getattr(fact, "name", None),
@@ -412,8 +413,11 @@ def validateAndResolveValueSources(
     allowed = set(getattr(locatorType, "allowedProperties", None) or ())
     allowed |= required  # required implies allowed
 
-    deferred = True
-    resolvedText: Optional[str] = None
+    # tavi "Value source object": the value is the concatenation, in order, of the content each
+    # source locator identifies, to which transformation, scale and sign are then applied. It is
+    # resolved only if every fragment is; a partial concatenation would be a different value.
+    texts = []
+    allResolved = True
 
     for source in valueSources:
         propNames = {
@@ -460,21 +464,21 @@ def validateAndResolveValueSources(
                     err=str(e),
                 )
                 text = None
-            if text is not None:
-                # Apply fact.transformation (reuses the ixt registry from
-                # arelle.FunctionIxt -- same functions used by legacy iXBRL),
-                # then apply scale (power of 10) and sign. Per spec these
-                # adjustments apply only to values sourced from html/pdf/etc.
-                # via valueSources -- not to literal fact.value.
-                resolvedText = applyTransformation(transformQn, text, compMdl)
-                resolvedText = _applyScaleAndSign(
-                    resolvedText,
-                    getattr(fact, "scale", None),
-                    getattr(fact, "sign", None),
-                )
-                deferred = False
+            if text is None:
+                allResolved = False
+            else:
+                texts.append(text)
+        else:
+            allResolved = False
 
-    return deferred, resolvedText
+    if not allResolved or not texts:
+        return True, None
+    # Apply the transformation (reusing the ixt registry from arelle.FunctionIxt -- the same
+    # functions legacy iXBRL uses), then scale (power of 10) and sign. Per spec these apply only
+    # to a value obtained from the sources, never to a literal fact.value.
+    resolvedText = applyTransformation(transformQn, "".join(texts), compMdl)
+    resolvedText = _applyScaleAndSign(resolvedText, valueSource.scale, valueSource.sign)
+    return False, resolvedText
 
 
 # --------------------------------------------------------------------
@@ -484,13 +488,13 @@ def validateAndResolveValueSources(
 def _resolveSourceUrl(fact, source, compMdl) -> Optional[str]:
     """Find the URL associated with a fact's source.
 
-    Looks up ``fact.reportSource`` (or the source-property on the
+    Looks up ``fact.valueSource.reportSource`` (or the source-property on the
     valueSource itself) against each module's parsed ``_sourceMappings``
     list (built at load time from ``documentInfo.sourceMappings``).
     Returns the absolute or repo-relative URL string, or ``None`` if the
     fact does not designate any source mapping.
     """
-    sourceQn = getattr(fact, "reportSource", None) or getattr(source, "source", None)
+    sourceQn = (fact.valueSource.reportSource if fact.valueSource is not None else None) or getattr(source, "source", None)
     for module in compMdl.xbrlModels.values():
         mappings = getattr(module, "_sourceMappings", None) or ()
         for mapping in mappings:

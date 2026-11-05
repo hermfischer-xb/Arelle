@@ -187,7 +187,7 @@ class XbrlObject(XbrlModelClass):
                 # collectionInfo recognizes both a plain collection (OrderedSet[X]) and an Optional
                 # one (Optional[NonemptySet[X]]) -- the isinstance(propType, GenericAlias) test this
                 # replaces only matched the former, so an Optional collection of objects (a fact's
-                # valueSources, a cube's cubeDimensions) fell through to the scalar branch below and
+                # properties, a cube's cubeDimensions) fell through to the scalar branch below and
                 # was shown as the collection's Python repr instead of expandable rows.
                 collInfo = collectionInfo(propType)
                 if collInfo is not None: # set, dict, etc

@@ -122,7 +122,7 @@ def effectiveFactValue(fact) -> Optional[Any]:
     there is nothing left to resolve here; the function remains so that the language's
     `factValue` type and its readers (value, decimals, isNil) keep one access point.
     """
-    if getattr(fact, "value", None) is not None or getattr(fact, "valueSources", None):
+    if getattr(fact, "value", None) is not None or getattr(fact, "sources", None):
         return fact
     return None
 
