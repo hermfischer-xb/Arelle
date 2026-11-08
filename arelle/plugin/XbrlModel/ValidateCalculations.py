@@ -174,10 +174,13 @@ def _factValueInterval(bucket, truncationOf):
                 return "inconsistentDuplicates", None
             continue
         byDecimals[dec] = value
+        # Intersection: at a bound both intervals share, the result includes it only if both do. Under one
+        # rounding mode every interval has the same inclusion pattern, so this only matters when duplicates
+        # are reported under different modes (rounded and truncated).
         if lo is None or _lo >= lo:
-            lo, loIncl = _lo, (_loIncl if lo is None or _lo > lo else loIncl or _loIncl)
+            lo, loIncl = _lo, (_loIncl if lo is None or _lo > lo else loIncl and _loIncl)
         if hi is None or _hi <= hi:
-            hi, hiIncl = _hi, (_hiIncl if hi is None or _hi < hi else hiIncl or _hiIncl)
+            hi, hiIncl = _hi, (_hiIncl if hi is None or _hi < hi else hiIncl and _hiIncl)
     if lo > hi or (lo == hi and not (loIncl and hiIncl)):
         return "inconsistentDuplicates", None
     return None, (lo, hi, loIncl, hiIncl)
