@@ -218,9 +218,9 @@ def _extremum(args, ctx, which, fname):
     if not items:
         return NONE_VALUE
     # Items order as the comparison operators order them (orderingKey), so a
-    # date or a period has a least and greatest item,
-    # not only a number or a string.  Items that do not order against each
-    # other, such as a date and a number, are an error.
+    # date or a period has a least and greatest item, not only a number or a
+    # string.  Items that do not order against each other, such as a date and
+    # a number, are an error.
     try:
         winner = which(items, key=lambda i: orderingKey(i, ctx))
     except TypeError:
