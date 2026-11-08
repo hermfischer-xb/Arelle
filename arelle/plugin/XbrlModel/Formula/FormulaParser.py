@@ -45,6 +45,19 @@ from .FormulaRuleSet import (
 )
 
 
+# Names may contain hyphens (in-required-context, previous-siblings), so a
+# keyword only matches when the next character cannot continue a name.  With
+# pyparsing's default identChars (alphanums + "_$") the keyword "in" matched the
+# start of "in-two", and the ~keyword guards then rejected that function name.
+_KEYWORD_IDENT_CHARS = alphanums + "_$-"
+
+
+def _keyword(word: str, caseless: bool = True) -> Keyword:
+    """A keyword that does not match the leading part of a hyphenated name."""
+    keywordClass = CaselessKeyword if caseless else Keyword
+    return keywordClass(word, identChars=_KEYWORD_IDENT_CHARS)
+
+
 # ---------------------------------------------------------------------------
 # Module-level grammar (built once, reused for all files)
 # ---------------------------------------------------------------------------
@@ -78,78 +91,78 @@ def _buildGrammar():
     blockExpr = Forward()
 
     # ---- Keywords ----
-    assertKw        = CaselessKeyword("assert")
-    satisfiedKw     = CaselessKeyword("satisfied")
-    unsatisfiedKw   = CaselessKeyword("unsatisfied")
-    outputKw        = CaselessKeyword("output")
-    namespaceKw     = CaselessKeyword("namespace")
-    constantKw      = CaselessKeyword("constant")
-    parameterKw     = CaselessKeyword("parameter")
-    requiredKw      = CaselessKeyword("required")
-    selectKw        = CaselessKeyword("select")
-    functionKw      = CaselessKeyword("function")
-    versionKw       = CaselessKeyword("version")
-    messageKw       = CaselessKeyword("message")
-    severityKw      = CaselessKeyword("severity")
-    ruleSuffixKw    = CaselessKeyword("rule-suffix")
-    querySuffixKw   = CaselessKeyword("query-suffix")
-    ruleFocusKw     = CaselessKeyword("rule-focus")
-    filterKw        = CaselessKeyword("filter")
-    returnKw        = CaselessKeyword("returns")
-    forKw           = CaselessKeyword("for")
-    inKw            = CaselessKeyword("in")
-    notInKw         = (CaselessKeyword("not") + CaselessKeyword("in")).copy().setParseAction(lambda: "not in")
-    ifKw            = CaselessKeyword("if")
-    thenKw          = CaselessKeyword("then")
-    elseKw          = CaselessKeyword("else")
-    whereKw         = CaselessKeyword("where")
-    trueKw          = CaselessKeyword("true")
-    falseKw         = CaselessKeyword("false")
-    noneKw          = CaselessKeyword("none")
-    skipKw          = CaselessKeyword("skip")
-    andKw           = CaselessKeyword("and")
-    orKw            = CaselessKeyword("or")
-    notKw           = CaselessKeyword("not")
-    nilsKw          = CaselessKeyword("nils")
-    nonilsKw        = CaselessKeyword("nonils")
-    coveredKw       = CaselessKeyword("covered")
-    uncoveredKw     = CaselessKeyword("uncovered")
-    errorKw         = CaselessKeyword("error")
-    warningKw       = CaselessKeyword("warning")
-    okKw            = CaselessKeyword("ok")
-    passKw          = CaselessKeyword("pass")
-    asKw            = CaselessKeyword("as")
-    nilDefaultKw    = CaselessKeyword("nildefault")
-    coveredDimsKw   = CaselessKeyword("covered-dims")
-    noDupsKw        = CaselessKeyword("nodups")
-    dupsKw          = CaselessKeyword("dups")
-    navigateKw      = CaselessKeyword("navigate")
-    includeKw       = CaselessKeyword("include")
-    startKw         = CaselessKeyword("start")
-    fromKw          = CaselessKeyword("from")
-    toKw            = CaselessKeyword("to")
-    stopKw          = CaselessKeyword("stop")
-    whenKw          = CaselessKeyword("when")
-    acrossKw        = CaselessKeyword("across")
-    containersKw    = CaselessKeyword("containers")
-    networkKw       = CaselessKeyword("network")
-    domainKw        = CaselessKeyword("domain")
-    groupKw         = CaselessKeyword("group")
-    cubeKw          = CaselessKeyword("cube")
-    dimensionKw     = CaselessKeyword("dimension")
-    modelKw         = CaselessKeyword("model")
-    pathsKw         = CaselessKeyword("paths")
-    byKw            = CaselessKeyword("by")
-    listKw          = CaselessKeyword("list")
-    setKw           = CaselessKeyword("set")
+    assertKw        = _keyword("assert")
+    satisfiedKw     = _keyword("satisfied")
+    unsatisfiedKw   = _keyword("unsatisfied")
+    outputKw        = _keyword("output")
+    namespaceKw     = _keyword("namespace")
+    constantKw      = _keyword("constant")
+    parameterKw     = _keyword("parameter")
+    requiredKw      = _keyword("required")
+    selectKw        = _keyword("select")
+    functionKw      = _keyword("function")
+    versionKw       = _keyword("version")
+    messageKw       = _keyword("message")
+    severityKw      = _keyword("severity")
+    ruleSuffixKw    = _keyword("rule-suffix")
+    querySuffixKw   = _keyword("query-suffix")
+    ruleFocusKw     = _keyword("rule-focus")
+    filterKw        = _keyword("filter")
+    returnKw        = _keyword("returns")
+    forKw           = _keyword("for")
+    inKw            = _keyword("in")
+    notInKw         = (_keyword("not") + _keyword("in")).copy().setParseAction(lambda: "not in")
+    ifKw            = _keyword("if")
+    thenKw          = _keyword("then")
+    elseKw          = _keyword("else")
+    whereKw         = _keyword("where")
+    trueKw          = _keyword("true")
+    falseKw         = _keyword("false")
+    noneKw          = _keyword("none")
+    skipKw          = _keyword("skip")
+    andKw           = _keyword("and")
+    orKw            = _keyword("or")
+    notKw           = _keyword("not")
+    nilsKw          = _keyword("nils")
+    nonilsKw        = _keyword("nonils")
+    coveredKw       = _keyword("covered")
+    uncoveredKw     = _keyword("uncovered")
+    errorKw         = _keyword("error")
+    warningKw       = _keyword("warning")
+    okKw            = _keyword("ok")
+    passKw          = _keyword("pass")
+    asKw            = _keyword("as")
+    nilDefaultKw    = _keyword("nildefault")
+    coveredDimsKw   = _keyword("covered-dims")
+    noDupsKw        = _keyword("nodups")
+    dupsKw          = _keyword("dups")
+    navigateKw      = _keyword("navigate")
+    includeKw       = _keyword("include")
+    startKw         = _keyword("start")
+    fromKw          = _keyword("from")
+    toKw            = _keyword("to")
+    stopKw          = _keyword("stop")
+    whenKw          = _keyword("when")
+    acrossKw        = _keyword("across")
+    containersKw    = _keyword("containers")
+    networkKw       = _keyword("network")
+    domainKw        = _keyword("domain")
+    groupKw         = _keyword("group")
+    cubeKw          = _keyword("cube")
+    dimensionKw     = _keyword("dimension")
+    modelKw         = _keyword("model")
+    pathsKw         = _keyword("paths")
+    byKw            = _keyword("by")
+    listKw          = _keyword("list")
+    setKw           = _keyword("set")
     # `across networks` is the XBRL Formula 1.0 spelling; domain networks are
     # crossed too, so the specification renames it `across containers`.
-    networksKw      = CaselessKeyword("networks")
-    directionKw     = (CaselessKeyword("descendants") | CaselessKeyword("children")
-                       | CaselessKeyword("ancestors") | CaselessKeyword("parents")
-                       | CaselessKeyword("previous-siblings")
-                       | CaselessKeyword("next-siblings")
-                       | CaselessKeyword("siblings") | CaselessKeyword("self"))
+    networksKw      = _keyword("networks")
+    directionKw     = (_keyword("descendants") | _keyword("children")
+                       | _keyword("ancestors") | _keyword("parents")
+                       | _keyword("previous-siblings")
+                       | _keyword("next-siblings")
+                       | _keyword("siblings") | _keyword("self"))
 
     declKeywords = (assertKw | outputKw | namespaceKw | constantKw | parameterKw | functionKw | versionKw)
 
@@ -223,7 +236,7 @@ def _buildGrammar():
     # string, so without these `$c.periodType == duration` compares a string to
     # a no-namespace QName and is quietly false.
     periodTypeLiteral = Group(
-        (Keyword("instant") | Keyword("duration")).setResultsName("value")
+        (_keyword("instant", caseless=False) | _keyword("duration", caseless=False)).setResultsName("value")
     ).setResultsName("periodType")
 
     # ---- Variable reference ----
@@ -469,7 +482,7 @@ def _buildGrammar():
         + Opt((listKw | setKw).setResultsName("collection"))
         + Opt(pathsKw.setResultsName("paths"))
         + Opt(Group(_navReturnComponents).setResultsName("components"))
-        + Opt(Suppress(asKw) + (CaselessKeyword("dictionary") | listKw).setResultsName("as"))
+        + Opt(Suppress(asKw) + (_keyword("dictionary") | listKw).setResultsName("as"))
     ).setResultsName("navReturns")
 
     # The clauses after the direction may be written in any order.  Requiring a
@@ -588,7 +601,7 @@ def _buildGrammar():
             (one_of("+ -"),          1, OpAssoc.RIGHT, _mkUnary),
             (Literal("*") | Literal("/"), 2, OpAssoc.LEFT, _mkBinary),
             (one_of("+ - <+ <+> +> <- <-> ->"), 2, OpAssoc.LEFT, _mkBinary),
-            (Literal("&") | CaselessKeyword("intersect"), 2, OpAssoc.LEFT, _mkBinary),  # intersection (higher precedence)
+            (Literal("&") | _keyword("intersect"), 2, OpAssoc.LEFT, _mkBinary),  # intersection (higher precedence)
             (Literal("^"),           2, OpAssoc.LEFT, _mkBinary),   # symmetric difference (lower precedence)
             (one_of("== = != <= < >= >") | inKw | notInKw, 2, OpAssoc.LEFT, _mkBinary),
             (notKw,                  1, OpAssoc.RIGHT, _mkUnary),
@@ -735,7 +748,7 @@ def _buildGrammar():
     # Form:  output-attribute NAME
     # Stored as a namespace-like no-op for now; the interpreter will simply
     # surface attribute values when output rules assign them.
-    outputAttributeKw = CaselessKeyword("output-attribute")
+    outputAttributeKw = _keyword("output-attribute")
     outputAttributeDecl = Group(
         Suppress(outputAttributeKw)
         + simpleName.setResultsName("attrName")
@@ -744,7 +757,7 @@ def _buildGrammar():
     # ---- Namespace-group declaration (xule extension, accepted as no-op) ----
     # Form:  namespace-group NAME = <expr>
     # We absorb the RHS as a single expression so it doesn't break parsing.
-    namespaceGroupKw = CaselessKeyword("namespace-group")
+    namespaceGroupKw = _keyword("namespace-group")
     namespaceGroupDecl = Group(
         Suppress(namespaceGroupKw)
         + simpleName.setResultsName("groupName")
