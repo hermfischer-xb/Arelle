@@ -318,6 +318,46 @@ TRUE_VALUE = FormulaValue(FormulaValueType.BOOLEAN, True)
 FALSE_VALUE = FormulaValue(FormulaValueType.BOOLEAN, False)
 
 
+def orderingKey(fv: FormulaValue, ctx=None) -> Any:
+    """The Python value by which an item compares and orders.
+
+    One definition serves the comparison operators and the `min`, `max` and
+    `sort` collection functions, so `max(list($a, $b))` returns the item that
+    `$a > $b` says is greater.  A number orders as a Decimal (and the bare
+    names `inf` / `-inf` as infinities), a date by its datetime, a period by
+    its (start, end) pair, a time span by its length, and a fact by its value
+    typed by its concept.  A set or list orders by its items' keys.
+
+    Keys of different kinds (a date and a number, say) do not order against
+    each other: Python raises TypeError, which each caller turns into its own
+    result or error.
+    """
+    from .DateTimeSupport import DateRangeValue, InstantValue, TimeSpanValue
+    t = fv.type
+    if t == FormulaValueType.SET:
+        return frozenset(orderingKey(item, ctx) for item in fv.value)
+    if t == FormulaValueType.LIST:
+        return tuple(orderingKey(item, ctx) for item in fv.value)
+    if fv.isNumeric:
+        return fv.numericValue()
+    if t == FormulaValueType.QNAME and str(getattr(fv.value, "localName", fv.value)).lower() in ("inf", "infinity"):
+        return fv.numericValue()
+    if t == FormulaValueType.FACT:
+        # A fact compares as its value, typed by its concept: a decimal for a
+        # numeric concept, else the string. Converting every fact to a number
+        # raised on a text fact (`{@concept = dei:DocumentType} == '10-K'`).
+        from .FormulaProperties import _factPropValue
+        return orderingKey(_factPropValue(fv.value, [], ctx), ctx)
+    if t == FormulaValueType.DATE and isinstance(fv.value, InstantValue):
+        return fv.value.dt
+    if t == FormulaValueType.DURATION:
+        if isinstance(fv.value, DateRangeValue):
+            return (fv.value.start, fv.value.end)
+        if isinstance(fv.value, TimeSpanValue):
+            return fv.value.delta.total_seconds()
+    return fv.value
+
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------

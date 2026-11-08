@@ -20,7 +20,7 @@ from arelle.ModelValue import QName, qname as makeQName
 
 from .FormulaValue import (
     FormulaValue, FormulaValueType, FormulaRuntimeError,
-    NONE_VALUE, TRUE_VALUE, FALSE_VALUE, SKIP_VALUE
+    NONE_VALUE, TRUE_VALUE, FALSE_VALUE, SKIP_VALUE, orderingKey
 )
 from .DateTimeSupport import (
     InstantValue,
@@ -217,15 +217,22 @@ def _extremum(args, ctx, which, fname):
              if i.type not in (FormulaValueType.NONE, FormulaValueType.SKIP)]
     if not items:
         return NONE_VALUE
-    if all(i.type == FormulaValueType.STRING for i in items):
-        return which(items, key=lambda i: str(i.value))
-    winner = which(items, key=_num)
+    # Items order as the comparison operators order them (orderingKey), so a
+    # date or a period has a least and greatest item,
+    # not only a number or a string.  Items that do not order against each
+    # other, such as a date and a number, are an error.
+    try:
+        winner = which(items, key=lambda i: orderingKey(i, ctx))
+    except TypeError:
+        kinds = sorted({_typeName(i) for i in items})
+        raise FormulaRuntimeError(
+            f"{fname}() cannot order items of types {', '.join(kinds)}") from None
     if winner.type != FormulaValueType.FACT:
-        value = _num(winner)
-        if value.is_infinite():
+        key = orderingKey(winner, ctx)
+        if isinstance(key, Decimal) and key.is_infinite():
             # `inf` and `-inf` are written as bare names but are numbers;
-            # returning the name reports 'inf' rather than 'Infinity'.
-            return FormulaValue(FormulaValueType.DECIMAL, value)
+            # returning the name (or a float) reports 'inf' rather than 'Infinity'.
+            return FormulaValue(FormulaValueType.DECIMAL, key)
     return winner
 
 
@@ -491,10 +498,13 @@ def _fn_sort(args: List[FormulaValue], ctx: "FormulaRuleContext") -> FormulaValu
                 f"The argument of the sort property must be either 'asc' or 'desc'. Found: '{args[1].value}'."
             )
         reverse = order == "desc"
+    # Sort as the comparison operators order (numbers numerically, dates by
+    # date); only items that do not order against each other fall back to
+    # their text, as the XULE sort property does.
     try:
-        sorted_items = sorted(items, key=lambda x: str(x.value), reverse=reverse)
+        sorted_items = sorted(items, key=lambda x: orderingKey(x, ctx), reverse=reverse)
     except TypeError:
-        sorted_items = items
+        sorted_items = sorted(items, key=lambda x: str(x.value), reverse=reverse)
     return FormulaValue(FormulaValueType.LIST, sorted_items)
 
 

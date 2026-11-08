@@ -53,7 +53,7 @@ from arelle.ModelValue import QName
 from .FormulaValue import (
     FormulaValue, FormulaValueType,
     FormulaRuntimeError, FormulaAlignmentError, FormulaIterationStop, FormulaSkip,
-    NONE_VALUE, TRUE_VALUE, FALSE_VALUE, SKIP_VALUE,
+    NONE_VALUE, TRUE_VALUE, FALSE_VALUE, SKIP_VALUE, orderingKey,
 )
 from .FormulaContext import FormulaGlobalContext, FormulaRuleContext
 from .FormulaFunctions import callFunction, BUILTIN_FUNCTIONS
@@ -2159,30 +2159,8 @@ def _strictSkipBinary(left: FormulaValue, op: str, right: FormulaValue, merged) 
 
 def _compare(left: FormulaValue, op: str, right: FormulaValue,
              merged, ctx=None) -> FormulaValue:
-    def _asComparable(fv: FormulaValue):
-        if fv.type == FormulaValueType.SET:
-            return frozenset(_asComparable(item) for item in fv.value)
-        if fv.type == FormulaValueType.LIST:
-            return tuple(_asComparable(item) for item in fv.value)
-        if fv.isNumeric:
-            return fv.numericValue()
-        if fv.type == FormulaValueType.FACT:
-            # A fact compares as its value, typed by its concept: a decimal for a
-            # numeric concept, else the string. Converting every fact to a number
-            # raised on a text fact (`{@concept = dei:DocumentType} == '10-K'`).
-            from .FormulaProperties import _factPropValue
-            return _asComparable(_factPropValue(fv.value, [], ctx))
-        if fv.type == FormulaValueType.DATE and isinstance(fv.value, InstantValue):
-            return fv.value.dt
-        if fv.type == FormulaValueType.DURATION:
-            if isinstance(fv.value, DateRangeValue):
-                return (fv.value.start, fv.value.end)
-            if isinstance(fv.value, TimeSpanValue):
-                return fv.value.delta.total_seconds()
-        return fv.value
-
-    lv = _asComparable(left)
-    rv = _asComparable(right)
+    lv = orderingKey(left, ctx)
+    rv = orderingKey(right, ctx)
 
     try:
         if op in ("==", "="):  res = lv == rv
