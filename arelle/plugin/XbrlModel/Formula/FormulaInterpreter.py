@@ -1650,17 +1650,9 @@ def _factMatchesCubeFilter(fact, pf: dict, ctx: FormulaRuleContext) -> bool:
     cubeDimQn = mkQn(_coreDimNs(), "cube")
     factCubeNames = fact.factDimensions.get(cubeDimQn)
     if factCubeNames is None:
-        # Fall back: scan cubes' _cellFacts (populated by ValidateFacts) to
-        # determine cube membership.
-        cubeNames = []
-        for cube in ctx.globalCtx.txmyMdl.filterNamedObjects(XbrlCube):
-            cellFacts = getattr(cube, "_cellFacts", None)
-            if cellFacts:
-                for cellEntries in cellFacts.values():
-                    if any(f is fact for f, _ in cellEntries):
-                        cubeNames.append(cube.name)
-                        break
-        factCubeQns = [n for n in cubeNames if n is not None]
+        # Fall back: cube membership from cubes' _cellFacts (populated by ValidateFacts).
+        from .FormulaProperties import factCubes
+        factCubeQns = [cube.name for cube in factCubes(fact, ctx) if cube.name is not None]
     elif isinstance(factCubeNames, (list, tuple, set)):
         factCubeQns = list(factCubeNames)
     else:

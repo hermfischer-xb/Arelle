@@ -117,6 +117,30 @@ def _periodFormulaValue(fact, per) -> FormulaValue:
     return FormulaValue(FormulaValueType.DATE if isinstance(period, InstantValue)
                         else FormulaValueType.DURATION, period)
 
+def factCubes(fact, ctx) -> list:
+    """The cubes a fact was matched to by fact validation (each cube's ``_cellFacts``), in cube order.
+
+    The index is built once per evaluation and kept on the global context: scanning every cube of
+    the model for every fact a query tests made ``@cube`` filters cost facts x named objects
+    (minutes on a 10-K whose model includes us-gaap). It is not kept on the model, whose
+    ``_cellFacts`` a later validation repopulates.
+    """
+    globalCtx = getattr(ctx, "globalCtx", ctx)
+    index = getattr(globalCtx, "_factCubesIndex", None)
+    if index is None:
+        from XbrlModel.XbrlCube import XbrlCube
+        index = {}
+        for cube in globalCtx.txmyMdl.filterNamedObjects(XbrlCube):
+            inCube = set()
+            for cellEntries in (getattr(cube, "_cellFacts", None) or {}).values():
+                for f, _ in cellEntries:
+                    if id(f) not in inCube:
+                        inCube.add(id(f))
+                        index.setdefault(id(f), []).append(cube)
+        globalCtx._factCubesIndex = index
+    return index.get(id(fact), [])
+
+
 def _refuseAtReportTime(ctx, what: str) -> None:
     """Cube membership is not known when report-time expressions are evaluated."""
     globalCtx = getattr(ctx, "globalCtx", ctx)
@@ -292,13 +316,8 @@ def _factPropCubes(fact, args, ctx):
             if isinstance(obj, XbrlCube):
                 cubes.append(obj)
     else:
-        # Fallback: scan cubes for membership via _cellFacts populated by ValidateFacts.
-        for cube in txmy.filterNamedObjects(XbrlCube):
-            cellFacts = getattr(cube, "_cellFacts", None) or {}
-            for cellEntries in cellFacts.values():
-                if any(f is fact for f, _ in cellEntries):
-                    cubes.append(cube)
-                    break
+        # Fallback: cube membership via _cellFacts populated by ValidateFacts.
+        cubes.extend(factCubes(fact, ctx))
     return FormulaValue(FormulaValueType.SET, OrderedSet(
         FormulaValue(FormulaValueType.CUBE, c) for c in cubes
     ))
