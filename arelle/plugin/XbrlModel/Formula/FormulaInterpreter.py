@@ -1870,6 +1870,13 @@ def _evalFirstValue(funcName: str, rawArgs, ctx: FormulaRuleContext) -> FormulaV
 def _evalBinary(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     left = evaluateExpr(node.get("leftExpr"), ctx)
     op   = str(node.get("op", ""))
+    # and / or are lazy, as in XULE (evaluate_and, evaluate_or): operands are evaluated left
+    # to right and evaluation stops at the first that decides the result (false for and, true
+    # for or), so a right operand the left one guards ($ciks.count == 0 or $cik in $ciks) is
+    # not evaluated. An unbound left operand does not decide; the right one is evaluated.
+    if left.type == FormulaValueType.BOOLEAN and op.lower() in ("and", "or") \
+            and bool(left.value) == (op.lower() == "or"):
+        return TRUE_VALUE if left.value else FALSE_VALUE
     right = evaluateExpr(node.get("rightExpr"), ctx)
 
     # Merge alignments
