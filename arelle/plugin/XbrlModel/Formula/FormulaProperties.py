@@ -1333,7 +1333,7 @@ def _mdlOf(obj, ctx):
         node = (getattr(node, "cube", None) or getattr(node, "module", None)
                 or getattr(node, "parentObject", None))
         seen += 1
-    return ctx.txmyMdl
+    return ctx.txmyMdl if ctx is not None else None
 
 
 def _objValue(mdl, qn) -> FormulaValue:
@@ -1379,8 +1379,29 @@ def _propertyByQName(obj, qn) -> FormulaValue:
     """The model-defined property value of `obj` whose propertyType is `qn`."""
     for propObj in getattr(obj, "properties", None) or ():
         if propObj.property == qn:
-            return FormulaValue.fromScalar(propObj.value)
+            return _typedPropertyValue(obj, qn, propObj.value)
     return NONE_VALUE
+
+
+def _typedPropertyValue(obj, propTypeQn, value) -> FormulaValue:
+    """A property value typed by its property type.
+
+    The loader keeps a property value as the JSON gave it, so an xs:QName-typed value arrives
+    as a 'prefix:local' string. Left as one it never equals a QName -- a fact's dimension
+    value, a concept's name -- so a rule that pairs model content with facts silently
+    matches nothing. Its prefix is resolved through the module that holds the object.
+    """
+    if isinstance(value, str):
+        mdl = _mdlOf(obj, None)
+        propType = mdl.namedObjects.get(propTypeQn) if mdl is not None else None
+        dataType = getattr(propType, "dataType", None)
+        if (isinstance(dataType, QName) and dataType.localName == "QName"
+                and dataType.namespaceURI == "http://www.w3.org/2001/XMLSchema"):
+            prefix, sep, local = value.strip().partition(":")
+            ns = (getattr(getattr(obj, "module", None), "_prefixNamespaces", None) or {}).get(prefix) if sep else None
+            if ns is not None:
+                return FormulaValue(FormulaValueType.QNAME, QName(prefix, ns, local))
+    return FormulaValue.fromScalar(value)
 
 
 def _propertyByLocalName(obj, localName: str) -> Optional[FormulaValue]:
