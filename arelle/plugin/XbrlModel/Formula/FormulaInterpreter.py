@@ -1104,6 +1104,55 @@ def _evalQName(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
 # Fact query evaluator
 # ---------------------------------------------------------------------------
 
+def _reportFacts(ctx: FormulaRuleContext) -> list:
+    """The report's valid facts with dimensions, in model order; built once per evaluation.
+
+    Kept on the global context, as ``factCubes`` keeps its index: the facts and their
+    validity do not change while a rule set is evaluated. Callers must not mutate it.
+    """
+    globalCtx = ctx.globalCtx
+    facts = getattr(globalCtx, "_reportFactsCache", None)
+    if facts is None:
+        from arelle.XmlValidateConst import VALID
+        from XbrlModel.XbrlFact import XbrlFact
+        facts = [
+            f for f in globalCtx.txmyMdl.filterNamedObjects(XbrlFact)
+            if f.factDimensions
+            and getattr(f, "_xValid", VALID) >= VALID
+        ]
+        globalCtx._reportFactsCache = facts
+    return facts
+
+
+def _cubeSeedFacts(ctx: FormulaRuleContext, cubeQn: QName) -> list:
+    """Candidate facts for `@cube = cubeQn`, in model order (a superset of the matches).
+
+    Cube membership comes from a fact's own ``xbrl:cube`` dimension when it has one,
+    else from the cubes' ``_cellFacts`` (``factCubes``). The candidates are the cube's
+    ``_cellFacts`` facts plus every fact carrying its own cube dimension; the query's
+    filter loop then decides membership exactly as before. Without this, each `@cube`
+    query tested every report fact against each of its cubes: 1.27 million filter
+    calls for the 435 queries of the EXG edition on a 2,923-fact 10-K.
+    """
+    globalCtx = ctx.globalCtx
+    perCube = getattr(globalCtx, "_cubeSeedCache", None)
+    if perCube is None:
+        perCube = globalCtx._cubeSeedCache = {}
+    seed = perCube.get(cubeQn)
+    if seed is None:
+        from arelle.ModelValue import qname as mkQn
+        facts = _reportFacts(ctx)
+        cubeDimQn = mkQn(_coreDimNs(), "cube")
+        inCube = set()
+        cube = globalCtx.txmyMdl.namedObjects.get(cubeQn)
+        for cellEntries in (getattr(cube, "_cellFacts", None) or {}).values():
+            for f, _ in cellEntries:
+                inCube.add(id(f))
+        seed = [f for f in facts if id(f) in inCube or cubeDimQn in f.factDimensions]
+        perCube[cubeQn] = seed
+    return seed
+
+
 def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
     """
     Evaluate a factQuery node (spec-aligned grammar) and return a FormulaValue.
@@ -1203,6 +1252,17 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         None,
     )
 
+    cubeFilter = None
+    if conceptFilter is None and not otherModel:
+        cubeFilter = next(
+            (pf for pf in parsedFilters
+             if pf.get("kind") == "pseudo" and pf.get("pseudoName") == "cube"
+             and pf.get("op") in ("=", "==") and not pf.get("isWildcard") and not pf.get("isNone")
+             and isinstance(pf.get("expected"), QName)
+             and (not pf.get("propChain") or pf["propChain"][0] == "name")),
+            None,
+        )
+
     if otherModel:
         # The other model has no fact index in this evaluation context, so it is
         # scanned; the concept filter below still narrows the result.
@@ -1230,15 +1290,15 @@ def _evalFactQuery(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
                 seedFacts = ctx.globalCtx.factsForConcept(conceptQn)
         else:
             seedFacts = []
+    elif cubeFilter is not None:
+        # `@cube = X` seeds from cube X's own facts instead of testing every fact
+        # of the report against every cube it belongs to. The filter loop below
+        # still applies every filter, `@cube` included, so this only narrows.
+        seedFacts = _cubeSeedFacts(ctx, cubeFilter["expected"])
     else:
         # Full scan of all non-footnote facts. Only valid facts participate
         # in factsets (mirrors ``factsForConcept``).
-        from arelle.XmlValidateConst import VALID
-        seedFacts = [
-            f for f in ctx.globalCtx.txmyMdl.filterNamedObjects(XbrlFact)
-            if f.factDimensions
-            and getattr(f, "_xValid", VALID) >= VALID
-        ]
+        seedFacts = _reportFacts(ctx)
 
     # ---- Apply filters ----
     matched: List[Any] = []
