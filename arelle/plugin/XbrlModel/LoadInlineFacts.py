@@ -93,7 +93,7 @@ from .XbrlFact import XbrlFact, XbrlFactValue, XbrlFactValueSource
 from .XbrlProperty import XbrlProperty
 from .LoadFactsCommon import (
     XMLNS, clark, inheritedLang, oimContextDimensions, oimUnit,
-    factLocalName, factIdentity, qnNil, qnUnknownNilReason,
+    factLocalName, factIdentity, qnNil, qnUnknownNilReason, mergeInstanceNamespaces,
 )
 
 # grep marker for the POC scaffolding (mirrors POC-LEGACY-DTS in LoadLegacyTaxonomy)
@@ -145,7 +145,11 @@ def parseInlineFacts(compMdl, module, factSource, url):
         #    resolve against their concepts/dimensions/cubes (no-op-safe if present).
         _compileInlineDts(compMdl, inlineMx, url)
 
-        # 3. Namespace prefix + namespaceMaps redirect (shared with LoadXbrlXmlFacts).
+        # 3. The report's namespace declarations, as LoadXbrlXmlFacts merges an instance's,
+        #    so the prefixes of QName-valued facts (rxp:Gv rxp01:...Member) resolve; then the
+        #    namespace prefix + namespaceMaps redirect (shared with LoadXbrlXmlFacts).
+        for doc in _inlineDocuments(inlineMx):
+            mergeInstanceNamespaces(module, getattr(doc.xmlRootElement, "nsmap", None))
         factPrefix, factNs, redirect = factIdentity(module, factSource)
 
         # 4. Transform each ModelInlineFact -> XbrlFact / XbrlFactValue.
@@ -334,6 +338,14 @@ def _compileInlineDts(compMdl, inlineMx, url):
     moduleDict = legacyTaxonomyToOimModule(inlineMx, inlineBase=False)
     loadXbrlModule(compMdl.modelManager.cntlr, compMdl.error, compMdl.warning,
                    compMdl, moduleDict, url)
+
+
+def _inlineDocuments(inlineMx):
+    """The inline documents of the report: the entry document and, for a multi-document
+    IXDS, each of its documents (not the taxonomy schemas and linkbases it discovered)."""
+    from arelle.ModelDocument import Type
+    return [doc for doc in (getattr(inlineMx, "urlDocs", None) or {}).values()
+            if getattr(doc, "type", None) == Type.INLINEXBRL and getattr(doc, "xmlRootElement", None) is not None]
 
 
 def _iterTargetFacts(inlineMx):

@@ -237,6 +237,14 @@ def _typedFactValue(fact, raw, ctx) -> FormulaValue:
             isNumeric = bool(concept.isNumeric(_mdlOf(fact, ctx)))
         except (AttributeError, TypeError):
             isNumeric = False
+        if not isNumeric and _isQNameValued(concept, _mdlOf(fact, ctx)):
+            # A QName-valued fact (xs:QName, enum:enumerationItemType, rxp:Gv's member types)
+            # is a QName, as in XULE, so it compares with a dimension member; its prefix
+            # resolves through the fact's module (an unbound prefix leaves the string).
+            resolved = _resolvePrefixed(fact, raw.strip())
+            if isinstance(resolved, QName):
+                return FormulaValue(FormulaValueType.QNAME, resolved)
+            return FormulaValue(FormulaValueType.STRING, raw)
     if isNumeric:
         try:
             return FormulaValue(FormulaValueType.DECIMAL, Decimal(raw.strip()))
@@ -245,6 +253,15 @@ def _typedFactValue(fact, raw, ctx) -> FormulaValue:
     if raw in ("true", "false"):
         return FormulaValue(FormulaValueType.BOOLEAN, raw == "true")
     return FormulaValue(FormulaValueType.STRING, raw)
+
+def _isQNameValued(concept, mdl) -> bool:
+    """Whether the concept's dataType derives from xs:QName."""
+    dtObj = mdl.namedObjects.get(getattr(concept, "dataType", None)) if mdl is not None else None
+    xsBase = getattr(dtObj, "xsBaseType", None)
+    try:
+        return xsBase is not None and xsBase(mdl) == "QName"
+    except (AttributeError, TypeError):
+        return False
 
 def _factPropDecimals(fact, args, ctx):
     from .FormulaDuplicates import effectiveFactValue
