@@ -622,7 +622,11 @@ def _buildGrammar():
 
     # `returns` ends a filter's `where` block: read as a QName step, the where
     # clause yielded the returned expression and the filter selected everything.
-    blockStmt = (~(declKeywords | elseKw | returnKw | ruleSuffixKw | ruleFocusKw) + (assignExpr | expr))
+    # `where` never starts a step either. Read as a QName, `for $x in c where p
+    # $x` (a for loop has no where clause) parsed, and ran p as a step whose
+    # value was discarded, so the loop silently did not filter.
+    blockStmt = (~(declKeywords | elseKw | returnKw | whereKw | ruleSuffixKw | ruleFocusKw)
+                 + (assignExpr | expr))
     # A block runs until a clause keyword or the next declaration. Without the
     # guard the body swallowed its own rule's trailing clauses -- `message`,
     # `severity`, `query-suffix`, `rule-focus` parsed as further steps, and a
