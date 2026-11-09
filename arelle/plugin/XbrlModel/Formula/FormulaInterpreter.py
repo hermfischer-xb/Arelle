@@ -41,6 +41,7 @@ See COPYRIGHT.md for copyright information.
 """
 from __future__ import annotations
 
+import itertools
 import re
 from decimal import Decimal, InvalidOperation
 from dataclasses import replace
@@ -135,7 +136,7 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
     iteration: a parameter's select is expanded into iterations exactly as a
     rule body is, and only needs their values.
     """
-    from .FormulaIterations import collectIterationSources
+    from .FormulaIterations import collectIterationSources, alignmentsCompatible, mergeAlignment
 
     sources = collectIterationSources(rule.expr)
     loops = [src for src in sources if src.kind == "forExpr"]
@@ -163,7 +164,7 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
         the iteration only if the body actually asked it for a value.
         """
         read = ruleCtx.readIterIds
-        if read & empties:
+        if read & empties or read & ruleCtx.emptyIterIds:
             return False
         key = tuple(sorted((i, id(ruleCtx.iterBindings.get(i))) for i in read))
         if key in seen:
@@ -171,7 +172,36 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
         seen.add(key)
         return True
 
-    def run(bindings, alignment):
+    def bindLoopVariables(ctx, bindings):
+        # A loop variable is bound on the rule's own context, not only inside
+        # the loop body, so that the message can report the value this
+        # iteration is for, and so that a source probed inside the loop sees it.
+        for src in loops:
+            value = bindings.get(src.iterId)
+            varName = src.inner.get("varName")
+            if value is not None and varName:
+                ctx.bindVariable(varName, value)
+
+    def probe(src, bindings):
+        """Evaluate one source ahead of the body: (values, dependent).
+
+        A source is dependent when its expression reads a name nothing has
+        bound yet -- a variable the body assigns, a loop variable of a loop the
+        driver could not expand ahead, a tag. Its values here would be those of
+        `none`, so it is deferred to the body instead.
+        """
+        ctx = FormulaRuleContext(globalCtx)
+        ctx.ruleName = rule.name
+        ctx.iterBindings = dict(bindings)
+        bindLoopVariables(ctx, bindings)
+        ctx.unresolvedNames = set()
+        try:
+            values = _iterationValues(src, ctx)
+        except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
+            values = []
+        return values, bool(ctx.unresolvedNames)
+
+    def run(bindings, alignment, deferred, emptyIds=frozenset()):
         if emitted[0] >= MAX_ITERATIONS:
             return
         emitted[0] += 1
@@ -179,32 +209,63 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
         ruleCtx.ruleName = rule.name
         ruleCtx.iterBindings = dict(bindings)
         ruleCtx.alignment = alignment
-        # A loop variable is bound on the rule's own context, not only inside
-        # the loop body, so that the message can report the value this
-        # iteration is for.
-        for src in loops:
-            value = bindings.get(src.iterId)
-            varName = src.inner.get("varName")
-            if value is not None and varName:
-                ruleCtx.bindVariable(varName, value)
-        if onIteration is not None:
-            onIteration(ruleCtx, guard)
-        else:
-            _runRuleIteration(rule, ruleCtx, globalCtx, boundFacts=[], emitGuard=guard)
+        ruleCtx.deferredSources = deferred
+        ruleCtx.emptyIterIds = emptyIds
+        bindLoopVariables(ruleCtx, bindings)
+        try:
+            if onIteration is not None:
+                onIteration(ruleCtx, guard)
+            else:
+                _runRuleIteration(rule, ruleCtx, globalCtx, boundFacts=[], emitGuard=guard)
+        except _DeferredSourceReached as reached:
+            # The body reached a deferred source, now evaluable with the
+            # body's bindings. This attempt is discarded and the iteration runs
+            # again once per value the source contributes, which is what the
+            # source would have done had it been expanded ahead.
+            emitted[0] -= 1
+            fork(reached, bindings, alignment, deferred, emptyIds)
 
-    def joinQueries(bindings):
-        """Run once per alignment the rule's fact queries between them select."""
-        probe = FormulaRuleContext(globalCtx)
-        probe.ruleName = rule.name
-        probe.iterBindings = dict(bindings)
+    def fork(reached, bindings, alignment, deferred, emptyIds):
+        src = reached.src
+        if src.kind == "forExpr":
+            # A loop over an empty collection produces no iteration.
+            for value in reached.values:
+                run({**bindings, src.iterId: value}, alignment, deferred, emptyIds)
+            return
+        # A fact query: one iteration per fact whose alignment agrees with the
+        # facts this iteration already holds.
+        matched = [value for value in reached.values
+                   if alignmentsCompatible(alignment, getattr(value, "alignment", None))]
+        for value in matched:
+            run({**bindings, src.iterId: value},
+                mergeAlignment(alignment, getattr(value, "alignment", None)),
+                deferred, emptyIds)
+        if not matched:
+            # As for a query joined ahead: no fact here binds `none`, so a body
+            # that tests for the fact still runs. Only where nothing else has
+            # made this iteration does an empty source cancel it, as in the
+            # start iteration.
+            if not reached.values and not bindings:
+                emptyIds = emptyIds | {src.iterId}
+            run({**bindings, src.iterId: NONE_VALUE}, alignment, deferred, emptyIds)
+
+    def joinQueries(bindings, deferred):
+        """Run once per combination of facts the rule's fact queries select.
+
+        Each query contributes one iteration per fact it selects, and facts of
+        different queries combine where their alignments are equal (tavi-formula,
+        Alignment). Queries whose filters read a value the body binds are
+        deferred and joined when the body reaches them.
+        """
         grouped = []
         for src in queries:
+            values, dependent = probe(src, bindings)
+            if dependent:
+                deferred = {**deferred, src.iterId: src}
+                continue
             groups: Dict[Any, List[FormulaValue]] = {}
-            try:
-                for value in _iterationValues(src, probe):
-                    groups.setdefault(getattr(value, "alignment", None), []).append(value)
-            except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
-                pass
+            for value in values:
+                groups.setdefault(getattr(value, "alignment", None), []).append(value)
             grouped.append((src, groups))
 
         alignments = []
@@ -226,47 +287,88 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
                 else:
                     bound[src.iterId] = NONE_VALUE
                     empties.add(src.iterId)
-            run(bound, None)
+            run(bound, None, deferred)
             return
 
         for alignment in alignments:
-            bound = dict(bindings)
-            for src, groups in grouped:
-                vals = groups.get(alignment) or groups.get(None) or []
-                bound[src.iterId] = vals[0] if vals else NONE_VALUE
-            run(bound, alignment)
+            perQuery = [(src, groups.get(alignment) or groups.get(None) or [NONE_VALUE])
+                        for src, groups in grouped]
+            for combination in itertools.product(*(vals for _src, vals in perQuery)):
+                if emitted[0] >= MAX_ITERATIONS:
+                    return
+                bound = dict(bindings)
+                for (src, _vals), value in zip(perQuery, combination):
+                    bound[src.iterId] = value
+                run(bound, alignment, deferred)
 
-    def drive(i, bindings):
+    def drive(i, bindings, deferred):
         if i >= len(loops):
             if queries:
-                joinQueries(bindings)
+                joinQueries(bindings, deferred)
             else:
-                run(bindings, None)
+                run(bindings, None, deferred)
             return
         src = loops[i]
-        probe = FormulaRuleContext(globalCtx)
-        probe.ruleName = rule.name
-        probe.iterBindings = dict(bindings)
+        if src.iterId in deferred:
+            drive(i + 1, bindings, deferred)
+            return
         try:
-            values = _iterationValues(src, probe)
+            ctx = FormulaRuleContext(globalCtx)
+            ctx.ruleName = rule.name
+            ctx.iterBindings = dict(bindings)
+            bindLoopVariables(ctx, bindings)
+            ctx.unresolvedNames = set()
+            values = _iterationValues(src, ctx)
+            dependent = bool(ctx.unresolvedNames)
         except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
             # The loop's collection could not be evaluated. The rule is run
             # once without the binding so the error is reported rather than
             # turning the rule into no output at all.
-            run(bindings, None)
+            run(bindings, None, deferred)
+            return
+        if dependent:
+            drive(i + 1, bindings, {**deferred, src.iterId: src})
             return
         for value in values:
             bindings[src.iterId] = value
             try:
-                drive(i + 1, bindings)
+                drive(i + 1, bindings, deferred)
             finally:
                 bindings.pop(src.iterId, None)
 
-    drive(0, {})
+    drive(0, {}, {})
 
     if emitted[0] >= MAX_ITERATIONS:
         globalCtx.log("WARNING", f"formula:iterations:{rule.name}",
                       f"Rule {rule.name!r} stopped after {MAX_ITERATIONS} iterations.")
+
+
+class _DeferredSourceReached(BaseException):
+    """The body reached a deferred iteration source (see evaluateRule).
+
+    A BaseException, so that no evaluation step that tolerates ordinary errors
+    swallows it on its way back to the iteration driver.
+    """
+
+    def __init__(self, src, values):
+        super().__init__(src.iterId)
+        self.src = src
+        self.values = values
+
+
+def _forkAtDeferred(node, ctx) -> None:
+    """Hand a deferred source back to the driver the first time it is reached."""
+    iterId = node.get("_iterId") if isinstance(node, dict) else None
+    if iterId is None or iterId in ctx.iterBindings:
+        return
+    src = ctx.deferredSources.get(iterId)
+    if src is None:
+        return
+    try:
+        values = _iterationValues(src, ctx)
+    except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
+        values = []
+    raise _DeferredSourceReached(src, values)
 
 
 def _iterationValues(src, ctx) -> List[FormulaValue]:
@@ -769,6 +871,7 @@ def evaluateExpr(node: Any, ctx: FormulaRuleContext) -> FormulaValue:
         # evaluated alone yields every fact rather than this iteration's.
         value = _iterBinding(inner, ctx)
         if value is None:
+            _forkAtDeferred(inner, ctx)
             value = evaluateExpr(inner.get("expr"), ctx)
         tagNm = inner.get("tagName")
         if tagNm:
@@ -785,6 +888,7 @@ def evaluateExpr(node: Any, ctx: FormulaRuleContext) -> FormulaValue:
         bound = _iterBinding(node, ctx)
         if bound is not None:
             return bound
+        _forkAtDeferred(node, ctx)
         return _evalFactQuery(node.get("factQuery", node), ctx)
 
 
@@ -819,6 +923,7 @@ def evaluateExpr(node: Any, ctx: FormulaRuleContext) -> FormulaValue:
             childCtx = ctx.childContext()
             childCtx.bindVariable(inner.get("varName", ""), bound)
             return evaluateExpr(inner.get("body"), childCtx)
+        _forkAtDeferred(node, ctx)
         return _evalFor(inner, ctx)
 
     # ---- Filter expression ----

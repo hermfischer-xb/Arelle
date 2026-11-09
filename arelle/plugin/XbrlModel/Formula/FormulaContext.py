@@ -290,6 +290,19 @@ class FormulaRuleContext:
         # business multiplying the rule's results, and one that selected
         # nothing only cancels the iteration if something asked it for a value.
         self.readIterIds: set = set()
+        # Iteration sources whose own expression reads a variable the rule
+        # body binds (an assignment, a loop variable, a tag), keyed by iterId.
+        # They cannot be evaluated before the body runs, so the body forks the
+        # iteration when it reaches one (FormulaInterpreter.evaluateRule).
+        self.deferredSources: Dict[int, Any] = {}
+        # Deferred sources that selected nothing in this iteration: like an
+        # empty source in the start iteration, the iteration is dropped if the
+        # body asks one for a value.
+        self.emptyIterIds: frozenset = frozenset()
+        # Set only while the iteration driver probes a source before the body
+        # runs: the names a lookup found unbound, which is what makes a source
+        # deferred.
+        self.unresolvedNames: Optional[set] = None
         self.alignment:  Optional[AlignmentKey] = None
         self.ruleValue:  Optional[FormulaValue] = None
         self.ruleName:   Optional[str] = None
@@ -335,6 +348,8 @@ class FormulaRuleContext:
         # bind them explicitly.
         if name == "INSTANCE" or (name.startswith("INSTANCE") and name[8:].isdigit()):
             return FormulaValue(FormulaValueType.TAXONOMY, self.globalCtx.txmyMdl)
+        if self.unresolvedNames is not None:
+            self.unresolvedNames.add(name)
         return NONE_VALUE
 
     def childContext(self) -> "FormulaRuleContext":
@@ -344,6 +359,9 @@ class FormulaRuleContext:
         child.tags = self.tags   # shared, so nested tags reach the message
         child.iterBindings = self.iterBindings
         child.readIterIds = self.readIterIds
+        child.deferredSources = self.deferredSources
+        child.emptyIterIds = self.emptyIterIds
+        child.unresolvedNames = self.unresolvedNames
         child.alignment = self.alignment
         child.ruleName = self.ruleName
         child.ruleSuffix = self.ruleSuffix
