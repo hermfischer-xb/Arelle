@@ -695,23 +695,32 @@ def _conceptEnumerations(concept, ctx):
     return None
 
 
+def _isMonetaryTypeName(qn) -> bool:
+    """xbrlr:monetary itself (any XBRL status namespace), or XBRL 2.1's monetaryItemType where a
+    legacy type was not mapped onto it. Matched exactly: ratio types merely NAMED after money
+    (xbrla:MonetaryPerShare, xbrlr:monetaryPerLength, xbrlr:energyPerMonetary) derive from
+    xs:decimal or xbrlr:perShare and are not monetary."""
+    return (isinstance(qn, QName) and qn.localName in ("monetary", "monetaryItemType")
+            and "xbrl.org" in (qn.namespaceURI or ""))
+
+
 def _conceptIsMonetary(concept, ctx) -> bool:
     from XbrlModel.XbrlConcept import XbrlDataType
-    dt = ctx.txmyMdl.namedObjects.get(getattr(concept, "dataType", None))
+    dtQn = getattr(concept, "dataType", None)
+    if _isMonetaryTypeName(dtQn):
+        return True
+    dt = ctx.txmyMdl.namedObjects.get(dtQn)
     seen = set()
     while isinstance(dt, XbrlDataType):
         nm = dt.name
         if nm in seen:
             break
         seen.add(nm)
-        if isinstance(nm, QName) and "monetary" in nm.localName.lower():
+        if _isMonetaryTypeName(nm) or _isMonetaryTypeName(dt.baseType):
             return True
-        bt = dt.baseType
-        if isinstance(bt, QName) and "monetary" in bt.localName.lower():
-            return True
-        if bt is None:
+        if dt.baseType is None:
             break
-        dt = ctx.txmyMdl.namedObjects.get(bt)
+        dt = ctx.txmyMdl.namedObjects.get(dt.baseType)
     return False
 
 
