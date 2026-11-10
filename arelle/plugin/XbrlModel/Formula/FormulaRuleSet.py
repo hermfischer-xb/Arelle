@@ -181,6 +181,60 @@ def _parseFileCached(path: str, cacheDir: Optional[str]) -> "FormulaRuleSet":
     return ruleSet
 
 
+def discardedSteps(ruleSet: "FormulaRuleSet") -> List[tuple]:
+    """(declaration, step) for every block step whose value is thrown away.
+
+    A block yields its last step, so a step before it is only there for an
+    assignment's effect. Anything else is text the grammar did not read the way
+    it was written: a word that is not an operator (`100 mod 7` is three steps,
+    whose value is 7), a modifier the grammar does not accept where it stands
+    (`list(covered @x = y)`), or a keyword of another language (`for $x in c
+    return e`). The rule then means something else without any error, so each
+    such step is reported.
+    """
+    found = []
+
+    def describe(step):
+        if isinstance(step, dict):
+            qn = step.get("qname") or step.get("base")
+            if isinstance(qn, dict) and "localName" in qn:
+                prefix = qn.get("prefix")
+                return qn["localName"] if prefix in (None, "*") else f"{prefix}:{qn['localName']}"
+            call = step.get("funcCall")
+            if isinstance(call, dict) and isinstance(call.get("funcName"), str):
+                return f"{call['funcName']}(...)"
+            if "base" in step and not isinstance(step["base"], (dict, list)):
+                return str(step["base"])
+            return step.get("exprName") or next(iter(step), "?")
+        return str(step)
+
+    def walk(node, declName, seen):
+        if isinstance(node, list):
+            for item in node:
+                walk(item, declName, seen)
+            return
+        if not isinstance(node, dict) or id(node) in seen:
+            return
+        seen.add(id(node))
+        steps = node.get("steps") if node.get("exprName") == "blockExpr" else None
+        if isinstance(steps, list):
+            for step in steps[:-1]:
+                if not (isinstance(step, dict) and step.get("exprName") == "assignExpr"):
+                    entry = (declName, describe(step))
+                    if entry not in found:
+                        found.append(entry)
+        for value in node.values():
+            walk(value, declName, seen)
+
+    for const in ruleSet.constants:
+        walk(const.expr, f"${const.name}", set())
+    for name, decl in ruleSet.parameters.items():
+        walk(getattr(decl, "selectExpr", None), f"parameter ${name}", set())
+    for rule in ruleSet.allRules:
+        walk(rule.expr, rule.name, set())
+    return found
+
+
 def loadRuleSet(paths: List[str], cntlr=None) -> "FormulaRuleSet":
     """
     Load and compile a rule set from one or more `.xule` source files or
@@ -233,6 +287,13 @@ def loadRuleSet(paths: List[str], cntlr=None) -> "FormulaRuleSet":
                 cntlr.addToLog(msg, messageCode="formula:parseProgress", level="DEBUG")
             else:
                 print(f"[INFO] {msg}")
+            for declName, step in discardedSteps(ruleSet):
+                msg = (f"{os.path.basename(xuleFile)}: in {declName}, the step {step!r} is neither an "
+                       f"assignment nor the block's last step, so its value is discarded")
+                if cntlr:
+                    cntlr.addToLog(msg, messageCode="formula:discardedStep", level="WARNING")
+                else:
+                    print(f"[WARNING] {msg}")
         except Exception as exc:
             msg = f"FormulaRuleSet: failed to parse {xuleFile!r}: {exc}"
             if cntlr:
