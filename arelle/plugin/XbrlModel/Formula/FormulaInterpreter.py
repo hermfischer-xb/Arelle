@@ -2468,6 +2468,11 @@ def _evalFilter(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
             out.append(val)
         else:
             out.append(item)
+    # The result is the collection type filtered, as in XULE: a list keeps its
+    # order and its duplicates (the same parent > child pair twice in a tree is
+    # two items), and a set stays a set.
+    if collection.type == FormulaValueType.LIST:
+        return FormulaValue(FormulaValueType.LIST, out)
     return FormulaValue(FormulaValueType.SET, OrderedSet(out))
 
 
