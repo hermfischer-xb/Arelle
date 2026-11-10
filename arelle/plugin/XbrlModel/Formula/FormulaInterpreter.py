@@ -41,7 +41,6 @@ See COPYRIGHT.md for copyright information.
 """
 from __future__ import annotations
 
-import itertools
 import re
 from decimal import Decimal, InvalidOperation
 from dataclasses import replace
@@ -201,7 +200,7 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
             values = []
         return values, bool(ctx.unresolvedNames)
 
-    def run(bindings, alignment, deferred, emptyIds=frozenset()):
+    def run(bindings, alignment, deferred, emptyIds=frozenset(), deferredValues=None):
         if emitted[0] >= MAX_ITERATIONS:
             return
         emitted[0] += 1
@@ -210,6 +209,7 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
         ruleCtx.iterBindings = dict(bindings)
         ruleCtx.alignment = alignment
         ruleCtx.deferredSources = deferred
+        ruleCtx.deferredValues = deferredValues or {}
         ruleCtx.emptyIterIds = emptyIds
         bindLoopVariables(ruleCtx, bindings)
         try:
@@ -223,14 +223,14 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
             # again once per value the source contributes, which is what the
             # source would have done had it been expanded ahead.
             emitted[0] -= 1
-            fork(reached, bindings, alignment, deferred, emptyIds)
+            fork(reached, bindings, alignment, deferred, emptyIds, deferredValues)
 
-    def fork(reached, bindings, alignment, deferred, emptyIds):
+    def fork(reached, bindings, alignment, deferred, emptyIds, deferredValues):
         src = reached.src
         if src.kind == "forExpr":
             # A loop over an empty collection produces no iteration.
             for value in reached.values:
-                run({**bindings, src.iterId: value}, alignment, deferred, emptyIds)
+                run({**bindings, src.iterId: value}, alignment, deferred, emptyIds, deferredValues)
             return
         # A fact query: one iteration per fact whose alignment agrees with the
         # facts this iteration already holds.
@@ -239,7 +239,7 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
         for value in matched:
             run({**bindings, src.iterId: value},
                 mergeAlignment(alignment, getattr(value, "alignment", None)),
-                deferred, emptyIds)
+                deferred, emptyIds, deferredValues)
         if not matched:
             # As for a query joined ahead: no fact here binds `none`, so a body
             # that tests for the fact still runs. Only where nothing else has
@@ -247,7 +247,7 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
             # start iteration.
             if not reached.values and not bindings:
                 emptyIds = emptyIds | {src.iterId}
-            run({**bindings, src.iterId: NONE_VALUE}, alignment, deferred, emptyIds)
+            run({**bindings, src.iterId: NONE_VALUE}, alignment, deferred, emptyIds, deferredValues)
 
     def joinQueries(bindings, deferred):
         """Run once per combination of facts the rule's fact queries select.
@@ -290,16 +290,19 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
             run(bound, None, deferred)
             return
 
+        # Within an alignment the joined queries are bound lazily: each forks
+        # the iteration, one per fact it has there, only when the body reads
+        # it. A query the body never reads -- one an aggregate short-circuits,
+        # or a copy of an atom the parser keeps beside the one evaluated --
+        # then does not multiply the iterations; expanded ahead, the product
+        # grew as the n-th power of the facts per alignment.
+        joined = {**deferred, **{src.iterId: src for src, _groups in grouped}}
         for alignment in alignments:
-            perQuery = [(src, groups.get(alignment) or groups.get(None) or [NONE_VALUE])
-                        for src, groups in grouped]
-            for combination in itertools.product(*(vals for _src, vals in perQuery)):
-                if emitted[0] >= MAX_ITERATIONS:
-                    return
-                bound = dict(bindings)
-                for (src, _vals), value in zip(perQuery, combination):
-                    bound[src.iterId] = value
-                run(bound, alignment, deferred)
+            if emitted[0] >= MAX_ITERATIONS:
+                return
+            values = {src.iterId: groups.get(alignment) or groups.get(None) or [NONE_VALUE]
+                      for src, groups in grouped}
+            run(dict(bindings), alignment, joined, deferredValues=values)
 
     def drive(i, bindings, deferred):
         if i >= len(loops):
@@ -364,10 +367,12 @@ def _forkAtDeferred(node, ctx) -> None:
     src = ctx.deferredSources.get(iterId)
     if src is None:
         return
-    try:
-        values = _iterationValues(src, ctx)
-    except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
-        values = []
+    values = ctx.deferredValues.get(iterId)
+    if values is None:
+        try:
+            values = _iterationValues(src, ctx)
+        except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
+            values = []
     raise _DeferredSourceReached(src, values)
 
 

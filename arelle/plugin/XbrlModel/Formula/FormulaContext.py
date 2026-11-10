@@ -295,6 +295,9 @@ class FormulaRuleContext:
         # They cannot be evaluated before the body runs, so the body forks the
         # iteration when it reaches one (FormulaInterpreter.evaluateRule).
         self.deferredSources: Dict[int, Any] = {}
+        # For a deferred source already evaluated by the driver (a fact query
+        # joined on alignment), the values it contributes in this iteration.
+        self.deferredValues: Dict[int, List[Any]] = {}
         # Deferred sources that selected nothing in this iteration: like an
         # empty source in the start iteration, the iteration is dropped if the
         # body asks one for a value.
@@ -360,6 +363,7 @@ class FormulaRuleContext:
         child.iterBindings = self.iterBindings
         child.readIterIds = self.readIterIds
         child.deferredSources = self.deferredSources
+        child.deferredValues = self.deferredValues
         child.emptyIterIds = self.emptyIterIds
         child.unresolvedNames = self.unresolvedNames
         child.alignment = self.alignment
