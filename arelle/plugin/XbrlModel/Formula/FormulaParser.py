@@ -89,6 +89,14 @@ def _buildGrammar():
     # ---- Expression forward references ----
     expr = Forward()
     blockExpr = Forward()
+    # A block nested in an expression without brackets of its own -- an if
+    # branch, a for loop body, a filter's where and returns -- is the
+    # specification's BlockExpr: assignments, then ONE expression. It cannot
+    # run on through further `;` steps the way a rule body does: in
+    # `$m = filter c where p; count($m)` the where clause took `count($m)` as
+    # a step of its own block, so $m was never assigned. Defined after
+    # assignExpr, below.
+    innerBlockExpr = Forward()
 
     # ---- Keywords ----
     assertKw        = _keyword("assert")
@@ -400,8 +408,8 @@ def _buildGrammar():
         Suppress(ifKw)
         + expr.setResultsName("condition")
         + Opt(Suppress(thenKw))
-        + blockExpr.setResultsName("thenExpr")
-        + Opt(Suppress(elseKw) + blockExpr.setResultsName("elseExpr"))
+        + innerBlockExpr.setResultsName("thenExpr")
+        + Opt(Suppress(elseKw) + innerBlockExpr.setResultsName("elseExpr"))
     ).setResultsName("ifExpr")
 
     # ---- For loop ----
@@ -419,7 +427,7 @@ def _buildGrammar():
     forExpr = Group(
         Suppress(forKw)
         + _forHeader
-        + blockExpr.setResultsName("body")
+        + innerBlockExpr.setResultsName("body")
     ).setResultsName("forExpr")
 
     # ---- Filter expression ----
@@ -433,8 +441,8 @@ def _buildGrammar():
              + Suppress(Literal(")")))
             | expr.setResultsName("collection")
         )
-        + Opt(Suppress(whereKw) + blockExpr.setResultsName("whereExpr"))
-        + Opt(Suppress(returnKw) + blockExpr.setResultsName("returnExpr"))
+        + Opt(Suppress(whereKw) + innerBlockExpr.setResultsName("whereExpr"))
+        + Opt(Suppress(returnKw) + innerBlockExpr.setResultsName("returnExpr"))
     ).setResultsName("filterExpr")
 
     # ---- Navigate expression (tavi-formula.md "Model Navigation") ----
@@ -624,8 +632,11 @@ def _buildGrammar():
     # clause yielded the returned expression and the filter selected everything.
     # `where` never starts a step either. Read as a QName, `for $x in c where p
     # $x` (a for loop has no where clause) parsed, and ran p as a step whose
-    # value was discarded, so the loop silently did not filter.
-    blockStmt = (~(declKeywords | elseKw | returnKw | whereKw | ruleSuffixKw | ruleFocusKw)
+    # value was discarded, so the loop silently did not filter. Nor does
+    # XQuery's `return`: `for $x in c return e` read `return` as a step and
+    # yielded e only because a block yields its last step.
+    blockStmt = (~(declKeywords | elseKw | returnKw | _keyword("return") | whereKw
+                   | ruleSuffixKw | ruleFocusKw)
                  + (assignExpr | expr))
     # A block runs until a clause keyword or the next declaration. Without the
     # guard the body swallowed its own rule's trailing clauses -- `message`,
@@ -639,6 +650,12 @@ def _buildGrammar():
     blockExpr <<= Group(
         Group(
             OneOrMore(~_clauseKw + blockStmt + Opt(Suppress(Literal(";"))))
+        ).setResultsName("steps")
+    ).addParseAction(_mkBlockExpr)
+    innerBlockExpr <<= Group(
+        Group(
+            ZeroOrMore(~_clauseKw + assignExpr + Opt(Suppress(Literal(";"))))
+            + (~_clauseKw + blockStmt)
         ).setResultsName("steps")
     ).addParseAction(_mkBlockExpr)
 
