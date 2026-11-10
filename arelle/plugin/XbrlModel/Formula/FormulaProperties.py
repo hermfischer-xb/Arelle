@@ -588,7 +588,7 @@ def _referenceProp(ref, propName: str, args, ctx) -> FormulaValue:
             FormulaValue(FormulaValueType.PART, p)
             for p in (ref.properties or ())))
     if propName == "property":
-        return _propertyByQName(ref, args[0].value) if args else NONE_VALUE
+        return _propertyByQName(ref, args[0].value, ctx) if args else NONE_VALUE
     if propName == "object-type":
         return _wrap(_objectTypeQNameOf(ref), FormulaValueType.QNAME)
     if propName == "parts":
@@ -754,7 +754,7 @@ def _conceptProp(concept, propName: str, args, ctx) -> FormulaValue:
     if propName == "property":
         if not args:
             raise FormulaRuntimeError("property() requires a property type QName")
-        return _propertyByQName(concept, args[0].value)
+        return _propertyByQName(concept, args[0].value, ctx)
     if propName == "properties":
         return FormulaValue(FormulaValueType.SET, OrderedSet(
             FormulaValue(FormulaValueType.PART, p)
@@ -1375,15 +1375,35 @@ def _objValue(mdl, qn) -> FormulaValue:
     return FormulaValue(FormulaValueType.MODEL_OBJECT, obj)
 
 
-def _propertyByQName(obj, qn) -> FormulaValue:
+def _propertyByQName(obj, qn, ctx=None) -> FormulaValue:
     """The model-defined property value of `obj` whose propertyType is `qn`."""
     for propObj in getattr(obj, "properties", None) or ():
         if propObj.property == qn:
-            return _typedPropertyValue(obj, qn, propObj.value)
+            return _typedPropertyValue(obj, qn, propObj.value, ctx)
     return NONE_VALUE
 
 
-def _typedPropertyValue(obj, propTypeQn, value) -> FormulaValue:
+def _modelPrefixNamespaces(mdl) -> dict:
+    """Prefix -> namespace as the model's own object names use them, built once per model.
+
+    The fallback for an object that does not know its module -- a relationship holds no
+    link back to its network or module -- so that a prefixed value written in that module
+    (`xbrl:label`) still resolves.
+    """
+    nsMap = getattr(mdl, "_formulaPrefixNamespaces", None)
+    if nsMap is None:
+        nsMap = {}
+        for qn in getattr(mdl, "namedObjects", None) or ():
+            if isinstance(qn, QName) and qn.prefix and qn.prefix not in nsMap:
+                nsMap[qn.prefix] = qn.namespaceURI
+        try:
+            mdl._formulaPrefixNamespaces = nsMap
+        except AttributeError:
+            pass
+    return nsMap
+
+
+def _typedPropertyValue(obj, propTypeQn, value, ctx=None) -> FormulaValue:
     """A property value typed by its property type.
 
     The loader keeps a property value as the JSON gave it, so an xs:QName-typed value arrives
@@ -1392,13 +1412,15 @@ def _typedPropertyValue(obj, propTypeQn, value) -> FormulaValue:
     matches nothing. Its prefix is resolved through the module that holds the object.
     """
     if isinstance(value, str):
-        mdl = _mdlOf(obj, None)
+        mdl = _mdlOf(obj, ctx)
         propType = mdl.namedObjects.get(propTypeQn) if mdl is not None else None
         dataType = getattr(propType, "dataType", None)
         if (isinstance(dataType, QName) and dataType.localName == "QName"
                 and dataType.namespaceURI == "http://www.w3.org/2001/XMLSchema"):
             prefix, sep, local = value.strip().partition(":")
             ns = (getattr(getattr(obj, "module", None), "_prefixNamespaces", None) or {}).get(prefix) if sep else None
+            if ns is None and sep and mdl is not None:
+                ns = _modelPrefixNamespaces(mdl).get(prefix)
             if ns is not None:
                 return FormulaValue(FormulaValueType.QNAME, QName(prefix, ns, local))
     return FormulaValue.fromScalar(value)
@@ -1518,7 +1540,7 @@ def _relationshipProp(nav, propName: str, args, ctx) -> FormulaValue:
     if propName == "property":
         if not args:
             raise FormulaRuntimeError("relationship.property() requires a QName argument")
-        return _propertyByQName(rel, args[0].value)
+        return _propertyByQName(rel, args[0].value, ctx)
 
     # Property-name shorthand over the relationship's link properties, so that
     # `weight` and `preferredLabel` reach xbrl:weight and xbrl:preferredLabel.
@@ -1583,7 +1605,7 @@ def _networkProp(nwk, propName: str, args, ctx) -> FormulaValue:
         return _conceptLabel(nwk, propName, args, ctx) if propName != "references" \
             else _conceptReferences(nwk, args, ctx)
     if propName == "property":
-        return _propertyByQName(nwk, args[0].value) if args else NONE_VALUE
+        return _propertyByQName(nwk, args[0].value, ctx) if args else NONE_VALUE
     shorthand = _propertyByLocalName(nwk, propName)
     if shorthand is not None:
         return shorthand
@@ -1622,7 +1644,7 @@ def _domainNetworkProp(dom, propName: str, args, ctx) -> FormulaValue:
     if propName == "isExtensible":
         return FormulaValue(FormulaValueType.BOOLEAN, bool(dom.isExtensible))
     if propName == "property":
-        return _propertyByQName(dom, args[0].value) if args else NONE_VALUE
+        return _propertyByQName(dom, args[0].value, ctx) if args else NONE_VALUE
     shorthand = _propertyByLocalName(dom, propName)
     if shorthand is not None:
         return shorthand
@@ -1661,7 +1683,7 @@ def _groupProp(grp, propName: str, args, ctx) -> FormulaValue:
                 out.add(_objValue(mdl, qn))
         return FormulaValue(FormulaValueType.SET, out)
     if propName == "property":
-        return _propertyByQName(grp, args[0].value) if args else NONE_VALUE
+        return _propertyByQName(grp, args[0].value, ctx) if args else NONE_VALUE
     shorthand = _propertyByLocalName(grp, propName)
     if shorthand is not None:
         return shorthand
@@ -1946,7 +1968,7 @@ def getProperty(
         if propName == "references":
             return _conceptReferences(dim, args, ctx)
         if propName == "property":
-            return _propertyByQName(dim, args[0].value) if args else NONE_VALUE
+            return _propertyByQName(dim, args[0].value, ctx) if args else NONE_VALUE
         shorthand = _propertyByLocalName(dim, propName)
         if shorthand is not None:
             return shorthand
@@ -1971,7 +1993,7 @@ def getProperty(
         if propName in ("label", "all-labels"):
             return _conceptLabel(o, propName, args, ctx)
         if propName == "property":
-            return _propertyByQName(o, args[0].value) if args else NONE_VALUE
+            return _propertyByQName(o, args[0].value, ctx) if args else NONE_VALUE
         shorthand = _propertyByLocalName(o, propName)
         if shorthand is not None:
             return shorthand
