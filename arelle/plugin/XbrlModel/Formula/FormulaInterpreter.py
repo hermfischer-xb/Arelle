@@ -1190,17 +1190,8 @@ def _evalQName(node: dict, ctx: FormulaRuleContext) -> FormulaValue:
         for propName in localName.split(".")[1:]:
             value = getProperty(value, propName, [], ctx)
         return value
-    if "." in localName:
-        head, *props = localName.split(".")
-        try:
-            qn = ctx.globalCtx.resolveQName(prefix, head)
-            value = FormulaValue(FormulaValueType.QNAME, qn)
-        except KeyError:
-            from arelle.ModelValue import qname as mkQn
-            value = FormulaValue(FormulaValueType.QNAME, mkQn("", head))
-        for propName in props:
-            value = getProperty(value, propName, [], ctx)
-        return value
+    # A period reaches a local name only through the `\.` escape (the tokenizer reads an
+    # unescaped `.` as property access), so a dotted local name is part of the QName.
     try:
         qn = ctx.globalCtx.resolveQName(prefix, localName)
         return FormulaValue(FormulaValueType.QNAME, qn)

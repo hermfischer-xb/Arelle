@@ -181,7 +181,11 @@ def _buildGrammar():
     # NCNames technically allow `.`, but Xule requires backslash escape
     # (e.g. `Assets\.local-part`) to embed `.` in a QName local part.
     _ncNameCont  = r"[A-Za-z0-9_\-\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02FF\u0300-\u036F\u0370-\u037D\u037F-\u1FFF\u200C-\u200D\u203F-\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD]*"
-    ncName   = Regex(_ncNameStart + _ncNameCont)
+    # An escaped period (`\.`) continues the name and is unescaped in the token, so
+    # `dnb_mes:T01\.03_Cube` is the QName dnb_mes:T01.03_Cube (tavi-formula.md,
+    # "Recognising QNames").
+    ncName   = Regex(_ncNameStart + r"(?:" + _ncNameCont[:-1] + r"|\\\.)*"
+                     ).addParseAction(lambda t: t[0].replace("\\.", "."))
     simpleName = Regex(r"[A-Za-z_][A-Za-z0-9_\-]*")
 
     # ---- QNames ----
