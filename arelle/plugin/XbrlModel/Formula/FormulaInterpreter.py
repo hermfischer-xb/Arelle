@@ -152,7 +152,6 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
 
     emitted = [0]
     seen = set()
-    empties = set()          # sources that selected nothing this pass
 
     def guard(ruleCtx):
         """Decide, once the body has run, whether this iteration is real.
@@ -163,7 +162,7 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
         the iteration only if the body actually asked it for a value.
         """
         read = ruleCtx.readIterIds
-        if read & empties or read & ruleCtx.emptyIterIds:
+        if read & ruleCtx.emptyIterIds:
             return False
         key = tuple(sorted((i, id(ruleCtx.iterBindings.get(i))) for i in read))
         if key in seen:
@@ -279,15 +278,17 @@ def evaluateRule(rule, globalCtx: FormulaGlobalContext, onIteration=None) -> Non
             # iteration, but only for a body that never asks the empty query
             # for a value -- the guard drops it otherwise, which is what makes
             # a rule over a concept that was never reported report nothing.
-            bound = dict(bindings)
+            # The emptiness belongs to this iteration: inside a loop, a query that selects nothing for one
+            # loop value may select facts for the next, so it is not recorded rule-wide.
+            bound, emptyIds = dict(bindings), set()
             for src, groups in grouped:
                 vals = groups.get(None) or []
                 if vals:
                     bound[src.iterId] = vals[0]
                 else:
                     bound[src.iterId] = NONE_VALUE
-                    empties.add(src.iterId)
-            run(bound, None, deferred)
+                    emptyIds.add(src.iterId)
+            run(bound, None, deferred, frozenset(emptyIds))
             return
 
         # Within an alignment the joined queries are bound lazily: each forks
