@@ -403,10 +403,10 @@ def _iterBinding(node, ctx) -> Optional[FormulaValue]:
     return ctx.iterBindings.get(iterId)
 
 
-# The severity names a rule may resolve to. `info` is here as well as the four
-# the specification enumerates because it is the severity an output block has
-# when it says nothing, so a rule may name it explicitly.
-_SEVERITIES = ("error", "warning", "ok", "pass", "info")
+# The severity names a rule may resolve to (tavi-formula.md, "Assert block").
+# `inconsistency` is xbrl:severityType's, for a value that disagrees with others
+# it should agree with, as a calculation inconsistency does.
+_SEVERITIES = ("error", "inconsistency", "warning", "ok", "pass", "info")
 
 
 # ---------------------------------------------------------------------------

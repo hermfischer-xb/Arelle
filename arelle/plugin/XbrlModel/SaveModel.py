@@ -470,8 +470,8 @@ def aspectsObject(dimPairs, **kwargs):
 # A tavi-formula result's severity as an xbrl:severityType (oim MR !903), which the validation
 # result object uses. `ok` and `pass` report that a rule held rather than that it failed; until
 # the two vocabularies are aligned they are recorded as `info`.
-FORMULA_SEVERITY_TYPES = {"error": "error", "warning": "warning", "info": "info",
-                          "ok": "info", "pass": "info"}
+FORMULA_SEVERITY_TYPES = {"error": "error", "inconsistency": "inconsistency", "warning": "warning",
+                          "info": "info", "ok": "info", "pass": "info"}
 
 
 def collectValidationResults(txmyMdl, **kwargs):

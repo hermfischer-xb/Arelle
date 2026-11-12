@@ -254,7 +254,10 @@ class FormulaGlobalContext:
             "facts":     facts,
             "factSelections": list(factSelections or ()),
         })
-        level = severity.upper() if severity.lower() != "ok" else "INFO"
+        # `ok` and `pass` say a rule held, so they log as information; Arelle has
+        # no level of either name (a name it does not know fails in addToLog).
+        # INCONSISTENCY is one of Arelle's own levels.
+        level = "INFO" if severity.lower() in ("ok", "pass") else severity.upper()
         code  = f"formula:{ruleType}:{ruleName}"
         self.log(level, code, message)
 
