@@ -541,6 +541,12 @@ def collectValidationResults(txmyMdl, **kwargs):
             selections.append(selection)
         if selections:
             entry["factSelections"] = selections
+        if r.get("cube") is not None:
+            # a missing value: the cube and the aspects of the place where it would be
+            entry["cubeName"] = saveableValue(r["cube"], "", **kwargs)
+            aspects = aspectsObject((r.get("aspects") or {}).items(), **kwargs)
+            if aspects:
+                entry["aspects"] = aspects
         results.append(entry)
     return results
 

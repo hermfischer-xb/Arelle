@@ -618,6 +618,20 @@ def _runRuleIteration(rule, ruleCtx: FormulaRuleContext,
 
     ruleCtx.ruleValue = result
 
+    # The suffix again, now in the body's scope: it may name what this firing is about from a
+    # variable the body assigned (a generic assert carrying many rules, one per value it loops
+    # over). Evaluated before the body as well, so that rule-name() inside the body sees it.
+    if suffixExpr is not None:
+        try:
+            sv = evaluateExpr(suffixExpr, ruleCtx)
+            if sv.type == FormulaValueType.STRING:
+                ruleCtx.ruleSuffix = str(sv.value)
+            elif sv.type not in (FormulaValueType.NONE, FormulaValueType.SKIP):
+                ruleCtx.ruleSuffix = _formatValue(sv)
+        except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
+            pass
+        emittedName = f"{rule.name}.{ruleCtx.ruleSuffix}" if ruleCtx.ruleSuffix else rule.name
+
     # The body has run, so what it actually read is known. The driver uses that
     # to drop an iteration that is a duplicate of one already reported, or that
     # depends on a query which selected nothing.
@@ -729,7 +743,75 @@ def _resultFacts(rule, ruleCtx: FormulaRuleContext, globalCtx: FormulaGlobalCont
         if key not in summarised:
             summarised.add(key)
             selections.append(_summariseSelection(selected, ruleCtx))
-    return {"facts": facts, "factSelections": selections}
+    place = None
+    for node in ruleCtx.emptyQueries:
+        place = _queryPlace(node, ruleCtx)
+        if place is not None:
+            break
+    return {"facts": facts, "factSelections": selections,
+            "cube": place[0] if place else None, "aspects": place[1] if place else None}
+
+
+def _queryPlace(node, ctx: FormulaRuleContext):
+    """(cube QName, {dimension QName: value}) where a single-value query's fact would be, or None.
+
+    The validation result object locates a missing value by a cube and the aspects of its place
+    (tavi-derived.md, `cubeName` and `aspects`), which a grid shows as an empty cell. A query that
+    selected nothing says where it looked: its `@cube` filter names the cube, and each filter
+    fixing a dimension to one value gives an aspect. The iteration's alignment -- the dimensions
+    the query left open, bound by the facts the iteration did find -- completes the place. A
+    query without a `@cube` filter names no cube, and so no place.
+    """
+    fq = node.get("factQuery", node) if isinstance(node, dict) else None
+    body = None
+    for key in ("fqCurly", "fqSquare", "fqBare"):
+        if isinstance(fq, dict) and key in fq:
+            body = fq[key]
+            break
+    if not isinstance(body, dict):
+        return None
+    filters = body.get("filters") or []
+    if isinstance(filters, dict):          # as _evalFactQuery reads them
+        filters = filters.get("dimFilter", [])
+    if isinstance(filters, dict):
+        filters = [filters]
+    elif not isinstance(filters, list):
+        filters = []
+    cubeQn = None
+    aspects = {}
+    for filt in filters:
+        if not isinstance(filt, dict):
+            continue
+        try:
+            pf = _parseDimFilter(filt, ctx)
+        except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
+            continue
+        if pf["op"] != "=" or pf["isWildcard"] or pf["isNone"] or pf["propChain"] or pf["value"] is None:
+            continue
+        if pf["kind"] == "pseudo":
+            if pf.get("pseudoName") == "cube":
+                value = pf["value"]
+                if value.type == FormulaValueType.QNAME:
+                    cubeQn = value.value
+                elif isinstance(getattr(value.value, "name", None), QName):
+                    cubeQn = value.value.name
+            continue
+        if pf["kind"] in ("concept", "core", "taxDim") and pf["dimQn"] is not None:
+            aspects[pf["dimQn"]] = pf["expected"]
+    if cubeQn is None:
+        return None
+    for dimQn, value in sorted(ctx.alignment or (), key=lambda dimValue: str(dimValue[0])):
+        aspects.setdefault(dimQn, value)   # sorted: the alignment is a set, the output is compared
+    # Filter QNames are resolved without a prefix; a place is published, so it carries the
+    # prefixes the rule set declares (the model's, as the rule set names its objects).
+    prefixOf = {uri: prefix for prefix, uri in ctx.globalCtx.namespaces.items() if prefix}
+    from XbrlModel.XbrlConst import xbrl
+    prefixOf.setdefault(xbrl, "xbrl")
+    def prefixed(value):
+        if isinstance(value, QName) and not value.prefix and value.namespaceURI in prefixOf:
+            return QName(prefixOf[value.namespaceURI], value.namespaceURI, value.localName)
+        return value
+    return prefixed(cubeQn), {prefixed(dimQn): prefixed(value) for dimQn, value in aspects.items()}
 
 
 def _summariseSelection(facts: List[Any], ctx) -> Dict[str, Any]:
@@ -1005,6 +1087,10 @@ def evaluateExpr(node: Any, ctx: FormulaRuleContext) -> FormulaValue:
     if exprName == "factQuery" or "factQuery" in node:
         bound = _iterBinding(node, ctx)
         if bound is not None:
+            if bound.type == FormulaValueType.NONE:
+                # a single-value query with no fact here: where that fact would be is a place
+                # the result concerns (an empty cell), see _resultFacts
+                ctx.emptyQueries.append(node)
             return bound
         _forkAtDeferred(node, ctx)
         result = _evalFactQuery(node.get("factQuery", node), ctx)
@@ -1014,6 +1100,8 @@ def evaluateExpr(node: Any, ctx: FormulaRuleContext) -> FormulaValue:
             selected = [item.value for item in result.value if item.type == FormulaValueType.FACT]
             if selected:
                 ctx.factSelections.append(selected)
+            elif not result.value:
+                ctx.emptyQueries.append(node)   # selected nothing: where it looked is a place
         return result
 
 

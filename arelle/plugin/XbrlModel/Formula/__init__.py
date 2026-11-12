@@ -318,6 +318,9 @@ def _writeResults(results: list, path: str, cntlr) -> None:
                      "aspects": {str(qn): str(v) for qn, v in sel["aspects"].items()},
                      "count": sel["count"]}
                     for sel in r["factSelections"]]
+            if r.get("cube") is not None:
+                entry["cubeName"] = str(r["cube"])
+                entry["aspects"] = {str(qn): str(v) for qn, v in (r.get("aspects") or {}).items()}
             serialisable.append(entry)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(serialisable, fh, indent=2)

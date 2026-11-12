@@ -234,14 +234,16 @@ class FormulaGlobalContext:
 
     def addResult(self, ruleName: str, ruleType: str, severity: str,
                   message: str, alignment: Optional[AlignmentKey] = None,
-                  factObj=None, facts=None, factSelections=None) -> None:
+                  factObj=None, facts=None, factSelections=None,
+                  cube=None, aspects=None) -> None:
         """Record and log one result.
 
         `facts` are the fact objects the result concerns, the rule-focus fact
         first; `factSelections` summarise fact collections too large to list
-        (see FormulaInterpreter._resultFacts). Both feed a validation result
-        object of derived content; `fact` (the first of them) is kept for
-        callers that read one.
+        (see FormulaInterpreter._resultFacts). `cube` and `aspects` locate a
+        place the result concerns where no fact was reported: a missing value.
+        All feed a validation result object of derived content; `fact` (the
+        first of the facts) is kept for callers that read one.
         """
         facts = list(facts or ())
         self.results.append({
@@ -253,6 +255,8 @@ class FormulaGlobalContext:
             "fact":      factObj if factObj is not None else (facts[0] if facts else None),
             "facts":     facts,
             "factSelections": list(factSelections or ()),
+            "cube":      cube,
+            "aspects":   dict(aspects or {}),
         })
         # `ok` and `pass` say a rule held, so they log as information; Arelle has
         # no level of either name (a name it does not know fails in addToLog).
@@ -321,6 +325,9 @@ class FormulaRuleContext:
         # in reading order. A result records them as the facts it concerns,
         # summarised when large (FormulaInterpreter._resultFacts).
         self.factSelections: List[List[Any]] = []
+        # Single-value fact queries the body read that had no fact in this iteration, in
+        # reading order: the first one's cube and fixed aspects locate a missing value.
+        self.emptyQueries: List[Any] = []
         # Set only while the iteration driver probes a source before the body
         # runs: the names a lookup found unbound, which is what makes a source
         # deferred.
@@ -385,6 +392,7 @@ class FormulaRuleContext:
         child.deferredValues = self.deferredValues
         child.emptyIterIds = self.emptyIterIds
         child.factSelections = self.factSelections
+        child.emptyQueries = self.emptyQueries
         child.unresolvedNames = self.unresolvedNames
         child.alignment = self.alignment
         child.ruleName = self.ruleName
