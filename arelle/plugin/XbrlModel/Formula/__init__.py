@@ -28,7 +28,8 @@ from __future__ import annotations
 import os
 from typing import Any, List, Optional
 
-parameterNames = ("formulaRulesets", "formulaAlignThreshold", "formulaEmbedDim", "formulaOutputFile", "formulaDefaultNamespace")
+parameterNames = ("formulaRulesets", "formulaAlignThreshold", "formulaEmbedDim", "formulaOutputFile", "formulaDefaultNamespace",
+                  "formulaResultFactLimit", "formulaRuleSetName", "formulaDerivedContent")
 
 # ---------------------------------------------------------------------------
 # Arelle plugin hook: command-line options
@@ -89,6 +90,34 @@ def cmdLineOptionExtender(parser, *args, **kwargs):
              "in the .xule sources. Useful when the test ruleset was written "
              "against an older taxonomy version than the filing under test.",
     )
+    parser.add_option(
+        "--formula-result-fact-limit",
+        action="store",
+        type="int",
+        dest="formulaResultFactLimit",
+        default=None,
+        help="The most facts one result lists (default 100). A fact collection the "
+             "rule read that would pass it, such as a column of a granular table, is "
+             "recorded as a selection: its shared cube and dimension values and a count.",
+    )
+    parser.add_option(
+        "--formula-ruleset-name",
+        action="store",
+        dest="formulaRuleSetName",
+        default=None,
+        help="The rule set's name in derived content (derivation ruleSets and each "
+             "validation result's ruleSet). Default: the rule set files' names.",
+    )
+    parser.add_option(
+        "--formula-derived-content",
+        action="store",
+        dest="formulaDerivedContent",
+        default=None,
+        help="Write the model with this run's results as derived content "
+             "(derivedContent.validationResults) to this file (.json or .cbor); "
+             "--oimSaveMode selects how much of the model is written. "
+             "--saveOIMmodel and --saveXbrlModelViewer carry the results as well.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +166,8 @@ def validateFinished(val, *args, **kwargs):
             joined = "|".join([p for p in [existing] + list(cliRulesets) if p])
             options["formulaRulesets"] = joined
         for opt in ("formulaAlignThreshold", "formulaEmbedDim", "formulaOutputFile",
-                    "formulaDefaultNamespace"):
+                    "formulaDefaultNamespace", "formulaResultFactLimit", "formulaRuleSetName",
+                    "formulaDerivedContent"):
             val_ = getattr(cliOpts, opt, None)
             if val_ is not None and opt not in options:
                 options[opt] = val_
@@ -188,10 +218,40 @@ def validateFinished(val, *args, **kwargs):
         _log(cntlr, "ERROR", "formula:eval", f"Formula evaluation failed: {exc}")
         return
 
-    # Optional: write results to a JSON file    
+    # The run is kept on the model, so that a save after validation (--saveOIMmodel,
+    # --saveXbrlModelViewer, --formula-derived-content) publishes its results as
+    # derived content (SaveModel.collectValidationResults).
+    txmyMdl._formulaRun = {
+        "ruleSet": options.get("formulaRuleSetName") or _ruleSetName(rulesetPaths),
+        "results": globalCtx.results,
+    }
+
+    # Optional: write results to a JSON file
     outputFile = options.get("formulaOutputFile", None)
     if outputFile and globalCtx.results:
         _writeResults(globalCtx.results, outputFile, cntlr)
+
+    derivedFile = options.get("formulaDerivedContent", None)
+    if derivedFile:
+        _writeDerivedContent(txmyMdl, derivedFile, cntlr)
+
+
+def _ruleSetName(rulesetPaths: List[str]) -> str:
+    """A rule set's default name: its files' names, as the processor was given them."""
+    return " ".join(os.path.basename(os.path.normpath(p)) for p in rulesetPaths)
+
+
+def _writeDerivedContent(txmyMdl, path: str, cntlr) -> None:
+    """Save the model with this run's results as derived content (validation result objects)."""
+    try:
+        from XbrlModel.SaveModel import saveFiles
+        cliOpts = getattr(cntlr, "_xbrlmodelFormulaOptions", None) or getattr(cntlr, "options", None)
+        saveMode = (getattr(cliOpts, "oimSaveMode", None) or "full").lower()
+        saveFiles(cntlr, txmyMdl, path, saveMode=saveMode)
+        _log(cntlr, "INFO", "formula:derivedContent",
+             f"Model with formula results as derived content written to {path!r}")
+    except Exception as exc:
+        _log(cntlr, "WARNING", "formula:derivedContent", f"Failed to write derived content: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -243,12 +303,22 @@ def _writeResults(results: list, path: str, cntlr) -> None:
     try:
         serialisable = []
         for r in results:
-            serialisable.append({
+            entry = {
                 "ruleName":  r["ruleName"],
                 "ruleType":  r["ruleType"],
                 "severity":  r["severity"],
                 "message":   r["message"],
-            })
+            }
+            facts = [str(f.name) for f in r.get("facts") or () if getattr(f, "name", None) is not None]
+            if facts:
+                entry["facts"] = facts
+            if r.get("factSelections"):
+                entry["factSelections"] = [
+                    {**({"cubeName": str(sel["cube"].name)} if sel.get("cube") is not None else {}),
+                     "aspects": {str(qn): str(v) for qn, v in sel["aspects"].items()},
+                     "count": sel["count"]}
+                    for sel in r["factSelections"]]
+            serialisable.append(entry)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(serialisable, fh, indent=2)
         _log(cntlr, "INFO", "formula:output", f"Formula results written to {path!r}")

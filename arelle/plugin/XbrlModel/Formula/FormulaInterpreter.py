@@ -597,7 +597,7 @@ def _runRuleIteration(rule, ruleCtx: FormulaRuleContext,
                 severity=rule.severity or "info",
                 message=f"Output {emittedName!r}: Evaluation error: {exc}",
                 alignment=ruleCtx.alignment,
-                factObj=boundFacts[0][1] if boundFacts else None,
+                **_resultFacts(rule, ruleCtx, globalCtx),
             )
         return
 
@@ -612,7 +612,7 @@ def _runRuleIteration(rule, ruleCtx: FormulaRuleContext,
                 severity=rule.severity or "info",
                 message=f"Output {emittedName!r}: skip",
                 alignment=ruleCtx.alignment,
-                factObj=boundFacts[0][1] if boundFacts else None,
+                **_resultFacts(rule, ruleCtx, globalCtx),
             )
         return
 
@@ -638,7 +638,7 @@ def _runRuleIteration(rule, ruleCtx: FormulaRuleContext,
                 severity=rule.severity or "error",
                 message=message,
                 alignment=ruleCtx.alignment,
-                factObj=boundFacts[0][1] if boundFacts else None,
+                **_resultFacts(rule, ruleCtx, globalCtx),
             )
     else:
         # Output: always emit
@@ -648,8 +648,120 @@ def _runRuleIteration(rule, ruleCtx: FormulaRuleContext,
             severity=rule.severity or "info",
             message=message,
             alignment=ruleCtx.alignment,
-            factObj=boundFacts[0][1] if boundFacts else None,
+            **_resultFacts(rule, ruleCtx, globalCtx),
         )
+
+
+# A result lists the facts it concerns up to this many (the formula option
+# formulaResultFactLimit). A collection that would take it past the limit -- a
+# column of a granular table summed or counted -- is recorded as a selection
+# instead: the cube and the dimension values its facts share, and their count.
+RESULT_FACT_LIMIT = 100
+
+
+def _factsOf(value) -> List[Any]:
+    """The fact objects a value holds: a fact, or the facts of a set or list."""
+    if value is None:
+        return []
+    if value.type == FormulaValueType.FACT:
+        return [value.value]
+    if value.type in (FormulaValueType.LIST, FormulaValueType.SET):
+        return [item.value for item in value.value
+                if isinstance(item, FormulaValue) and item.type == FormulaValueType.FACT]
+    return []
+
+
+def _resultFacts(rule, ruleCtx: FormulaRuleContext, globalCtx: FormulaGlobalContext) -> Dict[str, list]:
+    """The facts one result concerns, as addResult's `facts` and `factSelections`.
+
+    A viewer marks a result on the facts it records, so they are the facts the
+    iteration actually used, in this order:
+
+    1. the `rule-focus` fact, the one the result is about (tavi-derived.md,
+       validation result object `facts`: "that fact is first");
+    2. the facts the iteration driver bound and the body read -- one per fact
+       query or loop over facts, so few;
+    3. the facts of collections the body read (a query inside list(), sum(),
+       count()), while the total stays within the limit.
+
+    A collection that would pass the limit is not listed fact by fact: an
+    assertion over a whole column of a granular table would record thousands of
+    facts, each of them equally "concerned". It is summarised as a selection
+    (_summariseSelection) that a viewer can still locate.
+    """
+    facts: List[Any] = []
+    seen = set()
+
+    def add(fact):
+        if id(fact) not in seen:
+            seen.add(id(fact))
+            facts.append(fact)
+
+    focusExpr = getattr(rule, "focusExpr", None)
+    if focusExpr is not None:
+        try:
+            for fact in _factsOf(evaluateExpr(focusExpr, ruleCtx)):
+                add(fact)
+        except (FormulaRuntimeError, FormulaIterationStop, FormulaSkip):
+            pass
+    for iterId in sorted(ruleCtx.readIterIds):
+        for fact in _factsOf(ruleCtx.iterBindings.get(iterId)):
+            add(fact)
+
+    limit = RESULT_FACT_LIMIT
+    option = (globalCtx.options or {}).get("formulaResultFactLimit")
+    if option not in (None, ""):
+        try:
+            limit = int(option)
+        except (TypeError, ValueError):
+            pass
+    selections = []
+    summarised = set()   # a query the message repeats is read twice but recorded once
+    for selected in ruleCtx.factSelections:
+        new = [fact for fact in selected if id(fact) not in seen]
+        if not new:
+            continue
+        if len(facts) + len(new) <= limit:
+            for fact in new:
+                add(fact)
+            continue
+        key = frozenset(id(fact) for fact in selected)
+        if key not in summarised:
+            summarised.add(key)
+            selections.append(_summariseSelection(selected, ruleCtx))
+    return {"facts": facts, "factSelections": selections}
+
+
+def _summariseSelection(facts: List[Any], ctx) -> Dict[str, Any]:
+    """A collection of facts as what they have in common, for a result too large to list them.
+
+    `aspects` are the dimensions every fact has with the same value, `cube` the
+    first cube fact validation matched every one of them to (None where they
+    share none), and `count` how many there were. The aspects describe the
+    collection, not the query that selected it: a query's `where` may have
+    kept fewer facts than the aspects match, which is why the count is kept.
+    """
+    from .FormulaValue import _makeHashable
+    from .FormulaProperties import factCubes
+    first = facts[0]
+    firstDims = {qn: v for qn, v in (first.factDimensions or {}).items() if isinstance(qn, QName)}
+    common = {qn: _makeHashable(v) for qn, v in firstDims.items()}
+    cubeIds = [id(c) for c in factCubes(first, ctx)]
+    cubesById = {id(c): c for c in factCubes(first, ctx)}
+    for fact in facts[1:]:
+        dims = fact.factDimensions or {}
+        common = {qn: v for qn, v in common.items()
+                  if (qn in dims and _makeHashable(dims[qn]) == v)}
+        if cubeIds:
+            factCubeIds = {id(c) for c in factCubes(fact, ctx)}
+            cubeIds = [i for i in cubeIds if i in factCubeIds]
+        if not common and not cubeIds:
+            break
+    return {
+        "cube": cubesById[cubeIds[0]] if cubeIds else None,
+        "aspects": {qn: firstDims[qn] for qn in firstDims if qn in common},
+        "count": len(facts),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -895,7 +1007,14 @@ def evaluateExpr(node: Any, ctx: FormulaRuleContext) -> FormulaValue:
         if bound is not None:
             return bound
         _forkAtDeferred(node, ctx)
-        return _evalFactQuery(node.get("factQuery", node), ctx)
+        result = _evalFactQuery(node.get("factQuery", node), ctx)
+        # A query the driver did not bind is read as a collection: its facts are
+        # among those the iteration's result concerns (see _resultFacts).
+        if result.type in (FormulaValueType.LIST, FormulaValueType.SET):
+            selected = [item.value for item in result.value if item.type == FormulaValueType.FACT]
+            if selected:
+                ctx.factSelections.append(selected)
+        return result
 
 
     # ---- Atom with property chain ----

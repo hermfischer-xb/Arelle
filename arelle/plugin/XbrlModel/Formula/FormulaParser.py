@@ -688,7 +688,7 @@ def _buildGrammar():
         + blockExpr.setResultsName("suffixExpr")
     ).setResultsName("ruleSuffix")
 
-    # ---- Rule-focus clause (accepted, currently a no-op) ----
+    # ---- Rule-focus clause: the fact a result is about, recorded first among its facts ----
     ruleFocusClause = Group(
         Suppress(ruleFocusKw)
         + blockExpr.setResultsName("focusExpr")
@@ -1009,6 +1009,7 @@ def _buildRuleSet(parseRes: dict, filePath: str) -> FormulaRuleSet:
                 messageExpr=_normalizeNode(node.get("message", {}).get("msgExpr")),
                 severityExpr=_normalizeNode(node.get("severityClause", {}).get("severityExpr")),
                 suffixExpr=_normalizeNode(node.get("ruleSuffix", {}).get("suffixExpr")),
+                focusExpr=_normalizeNode(node.get("ruleFocus", {}).get("focusExpr")),
             )
             ruleSet.outputRules[rule.name] = rule
 
@@ -1023,6 +1024,7 @@ def _buildRuleSet(parseRes: dict, filePath: str) -> FormulaRuleSet:
                 messageExpr=_normalizeNode(node.get("message", {}).get("msgExpr")),
                 severityExpr=_normalizeNode(node.get("severityClause", {}).get("severityExpr")),
                 suffixExpr=_normalizeNode(node.get("ruleSuffix", {}).get("suffixExpr")),
+                focusExpr=_normalizeNode(node.get("ruleFocus", {}).get("focusExpr")),
             )
             ruleSet.assertRules[rule.name] = rule
 

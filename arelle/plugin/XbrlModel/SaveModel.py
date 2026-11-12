@@ -448,6 +448,75 @@ def separateDerivedValues(moduleDict, derivedNames):
                 factValue.pop("value", None)
 
 
+def aspectsObject(dimPairs, **kwargs):
+    """An aspects object (fact dimension name to OIM string) from (dimension QName, value) pairs."""
+    aspects = OrderedDict()
+    for dimQn, dimValue in dimPairs:
+        # xbrl:unit is the parsed (numerators, denominators) tuple after validation; the
+        # same inverse the fact dimensions use renders it as its OIM string.
+        if isinstance(dimValue, tuple):
+            unitStr = unitDimensionString(dimValue, "", **kwargs)
+            if unitStr is None:
+                continue
+            aspects[str(dimQn)] = unitStr
+        else:
+            # through saveableValue, so a QName that arrived without a prefix (xbrl:entity
+            # is scheme:identifier, and SEC filings declare no prefix for the CIK scheme)
+            # is minted and declared here too, rather than emitted as a bare identifier
+            aspects[str(dimQn)] = saveableValue(dimValue, "", **kwargs)
+    return aspects
+
+
+# A tavi-formula result's severity as an xbrl:severityType (oim MR !903), which the validation
+# result object uses. `ok` and `pass` report that a rule held rather than that it failed; until
+# the two vocabularies are aligned they are recorded as `info`.
+FORMULA_SEVERITY_TYPES = {"error": "error", "warning": "warning", "info": "info",
+                          "ok": "info", "pass": "info"}
+
+
+def collectValidationResults(txmyMdl, **kwargs):
+    """derivedContent.validationResults: what a tavi-formula run over this model reported.
+
+    Non-derivable content, like calculation results: what a rule set concluded when it ran. One
+    object per result of an assert, and of an output declared with an error or warning severity
+    (an output that reports a value is not a validation result). Each records the facts its
+    iteration used, the rule-focus fact first, and in place of a collection too large to list --
+    a column of a granular table -- a fact selection: the cube and dimension values its facts
+    share, and their count (Formula/FormulaInterpreter._resultFacts).
+    """
+    run = getattr(txmyMdl, "_formulaRun", None)
+    if not run:
+        return []
+    ruleSet = run["ruleSet"]
+    results = []
+    for r in run["results"]:
+        severity = (r.get("severity") or "").lower()
+        if r.get("ruleType") != "assert" and severity not in ("error", "warning"):
+            continue
+        entry = OrderedDict((("code", r["ruleName"]),
+                             ("ruleSet", ruleSet),
+                             ("severity", FORMULA_SEVERITY_TYPES.get(severity, "info"))))
+        if r.get("message"):
+            entry["message"] = r["message"]
+        facts = [str(f.name) for f in r.get("facts") or () if getattr(f, "name", None) is not None]
+        if facts:
+            entry["facts"] = facts
+        selections = []
+        for sel in r.get("factSelections") or ():
+            selection = OrderedDict()
+            if sel.get("cube") is not None:
+                selection["cubeName"] = str(sel["cube"].name)
+            aspects = aspectsObject(sel["aspects"].items(), **kwargs)
+            if aspects:
+                selection["aspects"] = aspects
+            selection["count"] = sel["count"]
+            selections.append(selection)
+        if selections:
+            entry["factSelections"] = selections
+        results.append(entry)
+    return results
+
+
 def collectCalculationResults(txmyMdl, **kwargs):
     """derivedContent.calculationResults: what this processor concluded for each binding.
 
@@ -462,20 +531,7 @@ def collectCalculationResults(txmyMdl, **kwargs):
         entry = OrderedDict((("cubeName", str(r["cube"])),
                              ("networkName", str(r["network"])),
                              ("total", str(r["total"]))))
-        aspects = OrderedDict()
-        for dimQn, dimValue in r["aspects"]:
-            # xbrl:unit is the parsed (numerators, denominators) tuple after validation; the
-            # same inverse the fact dimensions use renders it as its OIM string.
-            if isinstance(dimValue, tuple):
-                unitStr = unitDimensionString(dimValue, "", **kwargs)
-                if unitStr is None:
-                    continue
-                aspects[str(dimQn)] = unitStr
-            else:
-                # through saveableValue, so a QName that arrived without a prefix (xbrl:entity
-                # is scheme:identifier, and SEC filings declare no prefix for the CIK scheme)
-                # is minted and declared here too, rather than emitted as a bare identifier
-                aspects[str(dimQn)] = saveableValue(dimValue, "", **kwargs)
+        aspects = aspectsObject(r["aspects"], **kwargs)
         if aspects:
             entry["aspects"] = aspects
         entry["consistent"] = bool(r["consistent"])
@@ -503,6 +559,9 @@ def buildDerivationObject(txmyMdl):
     derivation["processor"] = "Arelle {} / XbrlModel plugin".format(
         getattr(Version, "__version__", "unknown"))
     derivation["ruleSets"] = ["oimte", "oimce", "oime", "oimtce"]
+    run = getattr(txmyMdl, "_formulaRun", None)
+    if run and run.get("ruleSet"):
+        derivation["ruleSets"].append(run["ruleSet"])
     roundingMode = getattr(txmyMdl, "calcRoundingModeOverride", None)
     if roundingMode:
         derivation["parameters"] = OrderedDict((("roundingMode", roundingMode),))
@@ -519,7 +578,8 @@ def buildDerivedContent(txmyMdl, **kwargs):
     cubeContents = collectCubeContents(txmyMdl)
     factValues = collectDerivedFactValues(txmyMdl)
     calculationResults = collectCalculationResults(txmyMdl, **kwargs)
-    if not (cubeContents or factValues or calculationResults):
+    validationResults = collectValidationResults(txmyMdl, **kwargs)
+    if not (cubeContents or factValues or calculationResults or validationResults):
         return None
     derived = OrderedDict()
     # The rendering that bound fact values were placed on, carried with them from the loaded
@@ -531,7 +591,7 @@ def buildDerivedContent(txmyMdl, **kwargs):
         if rewrite is not None and reportSource.get("url"):
             reportSource["url"] = rewrite(reportSource["url"]) or reportSource["url"]
         derived["reportSource"] = reportSource
-    if calculationResults or any(e.get("basis") == "bound" for e in factValues):
+    if calculationResults or validationResults or any(e.get("basis") == "bound" for e in factValues):
         # non-derivable content (verdicts, bindings): its provenance is required, not optional
         derived["derivation"] = buildDerivationObject(txmyMdl)
     if factValues:
@@ -540,6 +600,8 @@ def buildDerivedContent(txmyMdl, **kwargs):
         derived["cubeContents"] = cubeContents
     if calculationResults:
         derived["calculationResults"] = calculationResults
+    if validationResults:
+        derived["validationResults"] = validationResults
     return derived
 
 

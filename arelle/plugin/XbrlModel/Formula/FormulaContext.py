@@ -234,14 +234,25 @@ class FormulaGlobalContext:
 
     def addResult(self, ruleName: str, ruleType: str, severity: str,
                   message: str, alignment: Optional[AlignmentKey] = None,
-                  factObj=None) -> None:
+                  factObj=None, facts=None, factSelections=None) -> None:
+        """Record and log one result.
+
+        `facts` are the fact objects the result concerns, the rule-focus fact
+        first; `factSelections` summarise fact collections too large to list
+        (see FormulaInterpreter._resultFacts). Both feed a validation result
+        object of derived content; `fact` (the first of them) is kept for
+        callers that read one.
+        """
+        facts = list(facts or ())
         self.results.append({
             "ruleName": ruleName,
             "ruleType": ruleType,
             "severity": severity,
             "message":  message,
             "alignment": alignment,
-            "fact":      factObj,
+            "fact":      factObj if factObj is not None else (facts[0] if facts else None),
+            "facts":     facts,
+            "factSelections": list(factSelections or ()),
         })
         level = severity.upper() if severity.lower() != "ok" else "INFO"
         code  = f"formula:{ruleType}:{ruleName}"
@@ -302,6 +313,11 @@ class FormulaRuleContext:
         # empty source in the start iteration, the iteration is dropped if the
         # body asks one for a value.
         self.emptyIterIds: frozenset = frozenset()
+        # The fact collections the body read through fact queries that were not
+        # bound by the iteration driver (a query inside list(), sum(), count()...),
+        # in reading order. A result records them as the facts it concerns,
+        # summarised when large (FormulaInterpreter._resultFacts).
+        self.factSelections: List[List[Any]] = []
         # Set only while the iteration driver probes a source before the body
         # runs: the names a lookup found unbound, which is what makes a source
         # deferred.
@@ -365,6 +381,7 @@ class FormulaRuleContext:
         child.deferredSources = self.deferredSources
         child.deferredValues = self.deferredValues
         child.emptyIterIds = self.emptyIterIds
+        child.factSelections = self.factSelections
         child.unresolvedNames = self.unresolvedNames
         child.alignment = self.alignment
         child.ruleName = self.ruleName

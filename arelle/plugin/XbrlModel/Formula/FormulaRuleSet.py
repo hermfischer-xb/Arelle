@@ -45,6 +45,7 @@ class OutputRule:
     severity: str = "info"
     severityExpr: Optional[Any] = None  # AST node for the severity clause
     suffixExpr: Optional[Any] = None    # AST node for the rule-suffix string
+    focusExpr: Optional[Any] = None     # AST node for the rule-focus clause: the fact a result is about
 
 
 @dataclass
@@ -57,6 +58,7 @@ class AssertRule:
     severity: str = "error"
     severityExpr: Optional[Any] = None  # AST node for the severity clause
     suffixExpr: Optional[Any] = None    # AST node for the rule-suffix string
+    focusExpr: Optional[Any] = None     # AST node for the rule-focus clause: the fact a result is about
     # `assert Name satisfied` reports when the expression is false; the default,
     # `unsatisfied`, reports when it is true (tavi-formula.md, "Assert block").
     reportWhenSatisfied: bool = False
