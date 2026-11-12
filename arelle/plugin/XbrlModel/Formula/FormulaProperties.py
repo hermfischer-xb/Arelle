@@ -1282,6 +1282,13 @@ def _cubeProp(cube, propName: str, args, ctx) -> FormulaValue:
         return FormulaValue(FormulaValueType.SET, OrderedSet(
             FormulaValue(FormulaValueType.FACT, f) for f in facts
         ))
+    # model-defined properties (tavi-formula.md "Built-in and model-defined properties"): a cube
+    # carries a `properties` set like every other object that has one
+    if propName == "properties":
+        return FormulaValue(FormulaValueType.SET, OrderedSet(
+            FormulaValue(FormulaValueType.PART, p) for p in (cube.properties or ())))
+    if propName == "property":
+        return _propertyByQName(cube, args[0].value, ctx) if args else NONE_VALUE
     raise FormulaRuntimeError(f"Unknown cube property {propName!r}")
 
 
