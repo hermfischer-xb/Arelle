@@ -29,6 +29,7 @@ from .ViewXbrlTaxonomyObject import ViewXbrlTxmyObj
 from .XbrlConst import qnBuiltInCoreObjectsTaxonomy, cbor2Module
 from .XbrlObject import XbrlModelClass
 from .XbrlModel import XbrlCompiledModel
+from .XbrlFact import XbrlFact
 from .XbrlModule import XbrlModule
 from .XbrlTypes import DefaultTrue, DefaultFalse, DefaultZero
 from .PruneModel import pruneClosure, pruneSkip
@@ -474,24 +475,51 @@ FORMULA_SEVERITY_TYPES = {"error": "error", "inconsistency": "inconsistency", "w
                           "info": "info", "ok": "info", "pass": "info"}
 
 
-def collectValidationResults(txmyMdl, **kwargs):
-    """derivedContent.validationResults: what a tavi-formula run over this model reported.
+def modelResultRuleSet(code):
+    """The rule set a code the model's own validation reported belongs to: its prefix (oimte, ...)."""
+    return code.partition(":")[0] if ":" in code else "arelle"
 
-    Non-derivable content, like calculation results: what a rule set concluded when it ran. One
-    object per result of an assert, and of an output declared with an error or warning severity
-    (an output that reports a value is not a validation result). Each records the facts its
-    iteration used, the rule-focus fact first, and in place of a collection too large to list --
-    a column of a granular table -- a fact selection: the cube and dimension values its facts
-    share, and their count (Formula/FormulaInterpreter._resultFacts).
+
+def collectValidationResults(txmyMdl, **kwargs):
+    """derivedContent.validationResults: what validation and a tavi-formula run over this model reported.
+
+    Non-derivable content, like calculation results: what a rule set concluded when it ran.
+    Published with a tavi-formula run, and then complete: a derivation that names a rule set
+    claims every result reported under it is recorded (tavi-derived.md, "Validation result
+    object constraints"), and a regulator's rules are carried by the model's own constraints
+    (cubes, data types) as well as by asserts. So the results are
+
+    - every error, inconsistency and warning model loading and validation reported
+      (XbrlCompiledModel.log), under its code's prefix as rule set, with the objects it names;
+    - one per result of an assert, and of an output declared with an error, inconsistency or
+      warning severity (an output that reports a value is not a validation result). Each records
+      the facts its iteration used, the rule-focus fact first, and in place of a collection too
+      large to list -- a column of a granular table -- a fact selection: the cube and dimension
+      values its facts share, and their count (Formula/FormulaInterpreter._resultFacts).
     """
     run = getattr(txmyMdl, "_formulaRun", None)
     if not run:
         return []
-    ruleSet = run["ruleSet"]
     results = []
+    for r in getattr(txmyMdl, "_validationResultLog", None) or ():
+        entry = OrderedDict((("code", r["code"]),))
+        if ":" not in r["code"]:
+            entry["ruleSet"] = modelResultRuleSet(r["code"])
+        entry["severity"] = r["severity"]
+        if r.get("message"):
+            entry["message"] = r["message"]
+        named = [o for o in r.get("objects") or () if isinstance(getattr(o, "name", None), QName)]
+        facts = list(OrderedSet(str(o.name) for o in named if isinstance(o, XbrlFact)))
+        objects = list(OrderedSet(str(o.name) for o in named if not isinstance(o, XbrlFact)))
+        if facts:
+            entry["facts"] = facts
+        if objects:
+            entry["objects"] = objects
+        results.append(entry)
+    ruleSet = run["ruleSet"]
     for r in run["results"]:
         severity = (r.get("severity") or "").lower()
-        if r.get("ruleType") != "assert" and severity not in ("error", "warning"):
+        if r.get("ruleType") != "assert" and severity not in ("error", "inconsistency", "warning"):
             continue
         entry = OrderedDict((("code", r["ruleName"]),
                              ("ruleSet", ruleSet),
@@ -560,8 +588,15 @@ def buildDerivationObject(txmyMdl):
         getattr(Version, "__version__", "unknown"))
     derivation["ruleSets"] = ["oimte", "oimce", "oime", "oimtce"]
     run = getattr(txmyMdl, "_formulaRun", None)
-    if run and run.get("ruleSet"):
-        derivation["ruleSets"].append(run["ruleSet"])
+    if run:
+        # with a formula run, every result validation reported is recorded, so each rule set
+        # those results came under is named, and the formula rule set whether it reported or not
+        for r in getattr(txmyMdl, "_validationResultLog", None) or ():
+            ruleSet = modelResultRuleSet(r["code"])
+            if ruleSet not in derivation["ruleSets"]:
+                derivation["ruleSets"].append(ruleSet)
+        if run.get("ruleSet") and run["ruleSet"] not in derivation["ruleSets"]:
+            derivation["ruleSets"].append(run["ruleSet"])
     roundingMode = getattr(txmyMdl, "calcRoundingModeOverride", None)
     if roundingMode:
         derivation["parameters"] = OrderedDict((("roundingMode", roundingMode),))
@@ -579,7 +614,10 @@ def buildDerivedContent(txmyMdl, **kwargs):
     factValues = collectDerivedFactValues(txmyMdl)
     calculationResults = collectCalculationResults(txmyMdl, **kwargs)
     validationResults = collectValidationResults(txmyMdl, **kwargs)
-    if not (cubeContents or factValues or calculationResults or validationResults):
+    # A formula run that reported nothing still says so: its derivation names the rule sets it
+    # applied, and no result under them reads as "checked, none" rather than "not checked".
+    formulaRan = getattr(txmyMdl, "_formulaRun", None) is not None
+    if not (cubeContents or factValues or calculationResults or validationResults or formulaRan):
         return None
     derived = OrderedDict()
     # The rendering that bound fact values were placed on, carried with them from the loaded
@@ -591,7 +629,7 @@ def buildDerivedContent(txmyMdl, **kwargs):
         if rewrite is not None and reportSource.get("url"):
             reportSource["url"] = rewrite(reportSource["url"]) or reportSource["url"]
         derived["reportSource"] = reportSource
-    if calculationResults or validationResults or any(e.get("basis") == "bound" for e in factValues):
+    if calculationResults or validationResults or formulaRan or any(e.get("basis") == "bound" for e in factValues):
         # non-derivable content (verdicts, bindings): its provenance is required, not optional
         derived["derivation"] = buildDerivationObject(txmyMdl)
     if factValues:

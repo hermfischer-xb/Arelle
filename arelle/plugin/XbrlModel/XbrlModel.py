@@ -531,6 +531,51 @@ class XbrlCompiledModel(ModelXbrl): # complete wrapper for ModelXbrl
             yield n
 
 
+    # The levels a validation result records, as xbrl:severityType (tavi-derived.md, validation
+    # result object). Information and debugging messages are not results.
+    _VALIDATION_RESULT_SEVERITY = {"CRITICAL": "error", "ERROR": "error", "ERROR-SEMANTIC": "error",
+                                   "ASSERTION-NOT-SATISFIED": "error", "INCONSISTENCY": "inconsistency",
+                                   "WARNING": "warning", "WARNING-SEMANTIC": "warning"}
+
+    def log(self, level, codes, msg, **args):
+        """Log as ModelXbrl does, and keep each error, inconsistency or warning as a validation result.
+
+        A tavi-formula run published as derived content must record every result reported under
+        the rule sets its derivation names (tavi-derived.md, "Validation result object
+        constraints"), and a regulator's rules are carried as much by the model's own constraints
+        (a cube, a data type) as by asserts. So what model loading and validation report is kept
+        here, with the objects it names, for SaveModel.collectValidationResults to publish beside
+        the formula results. Formula results log through the controller, not here, so they are
+        not kept twice.
+        """
+        super(XbrlCompiledModel, self).log(level, codes, msg, **args)
+        severity = self._VALIDATION_RESULT_SEVERITY.get(level)
+        if severity is None or self.logger is None:
+            return
+        try:
+            messageCode = self.errorManager._effectiveMessageCode(codes)
+            if not messageCode or messageCode == "asrtNoLog":
+                return
+            messageCodeFilter = getattr(self.logger, "messageCodeFilter", None)
+            if messageCodeFilter and not messageCodeFilter.match(messageCode):
+                return
+            text = msg
+            try:
+                text = msg % {k: (str(v) if not isinstance(v, (int, float)) else v) for k, v in args.items()}
+            except (KeyError, TypeError, ValueError):
+                pass
+            objects = []
+            for key in ("xbrlObject", "modelObject"):
+                value = args.get(key)
+                if isinstance(value, (tuple, list, set, OrderedSet)):
+                    objects.extend(v for v in value if isinstance(v, XbrlObject))
+                elif isinstance(value, XbrlObject):
+                    objects.append(value)
+            self.__dict__.setdefault("_validationResultLog", []).append({
+                "code": str(messageCode), "severity": severity, "message": text, "objects": objects})
+        except Exception:
+            pass # recording a result must never disturb the logging it accompanies
+
     def error(self, *args, **kwargs):
         if "xbrlObject" in kwargs:
             argValue = kwargs["xbrlObject"]
