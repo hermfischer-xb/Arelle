@@ -85,6 +85,9 @@ class FormulaRuleSet:
         Named assertion rules.
     sourceFiles:
         Original source file paths, used to detect staleness for caching.
+    loadErrors:
+        (file, message) for each file that failed to load (formula:parseError);
+        the rules it held are missing from the set.
     """
     namespaces: Dict[str, str] = field(default_factory=dict)
     constants: List[ConstantDecl] = field(default_factory=list)
@@ -92,6 +95,8 @@ class FormulaRuleSet:
     outputRules: Dict[str, OutputRule] = field(default_factory=dict)
     assertRules: Dict[str, AssertRule] = field(default_factory=dict)
     sourceFiles: List[str] = field(default_factory=list)
+    # (file, message) for each file that could not be loaded; its rules are missing from the set
+    loadErrors: List[tuple] = field(default_factory=list)
 
     def mergeFrom(self, other: "FormulaRuleSet") -> None:
         """Merge another rule set into this one (used when loading multiple files)."""
@@ -298,6 +303,7 @@ def loadRuleSet(paths: List[str], cntlr=None) -> "FormulaRuleSet":
                     print(f"[WARNING] {msg}")
         except Exception as exc:
             msg = f"FormulaRuleSet: failed to parse {xuleFile!r}: {exc}"
+            merged.loadErrors.append((xuleFile, f"{os.path.basename(xuleFile)}: {exc}"))
             if cntlr:
                 cntlr.addToLog(msg, messageCode="formula:parseError", level="ERROR")
             else:

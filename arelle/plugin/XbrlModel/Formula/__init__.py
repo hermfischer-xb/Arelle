@@ -196,7 +196,16 @@ def validateFinished(val, *args, **kwargs):
         _log(cntlr, "ERROR", "formula:load", f"Failed to load formula rule set: {exc}")
         return
 
-    if not list(ruleSet.allRules):
+    # A file that failed to load leaves its rules out of the run, so the run is incomplete:
+    # each failure is kept as a validation result of the model (SaveModel.collectValidationResults),
+    # so that derived content naming the rule set does not read as all its rules having run.
+    # (Already logged by loadRuleSet, so recorded here without logging it again.)
+    for _xuleFile, message in ruleSet.loadErrors:
+        txmyMdl.__dict__.setdefault("_validationResultLog", []).append({
+            "code": "formula:parseError", "severity": "error", "message": message, "objects": []})
+
+    hasRules = bool(list(ruleSet.allRules))
+    if not hasRules and not ruleSet.loadErrors:
         _log(cntlr, "INFO", "formula:noRules", "Formula rule set loaded but contains no rules.")
         return
 
@@ -205,18 +214,19 @@ def validateFinished(val, *args, **kwargs):
     from .FormulaInterpreter import evaluateRuleSet
 
     globalCtx = FormulaGlobalContext(ruleSet, txmyMdl, cntlr=cntlr, options=options)
-    # Values supplied for the rule set's parameters (--parameters, or a test
-    # case's); the names the plugin reads as its own options are not parameters.
-    from .FormulaParameters import suppliedFromValidationParameters
-    supplied = suppliedFromValidationParameters(val.parameters)
-    for optionName in parameterNames:
-        supplied.pop(optionName, None)
-    globalCtx.prepareParameters(supplied=supplied)
-    try:
-        evaluateRuleSet(globalCtx)
-    except Exception as exc:
-        _log(cntlr, "ERROR", "formula:eval", f"Formula evaluation failed: {exc}")
-        return
+    if hasRules:
+        # Values supplied for the rule set's parameters (--parameters, or a test
+        # case's); the names the plugin reads as its own options are not parameters.
+        from .FormulaParameters import suppliedFromValidationParameters
+        supplied = suppliedFromValidationParameters(val.parameters)
+        for optionName in parameterNames:
+            supplied.pop(optionName, None)
+        globalCtx.prepareParameters(supplied=supplied)
+        try:
+            evaluateRuleSet(globalCtx)
+        except Exception as exc:
+            _log(cntlr, "ERROR", "formula:eval", f"Formula evaluation failed: {exc}")
+            return
 
     # The run is kept on the model, so that a save after validation (--saveOIMmodel,
     # --saveXbrlModelViewer, --formula-derived-content) publishes its results as

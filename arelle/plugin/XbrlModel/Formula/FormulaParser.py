@@ -34,7 +34,7 @@ from typing import Any
 
 from pyparsing import (
     CaselessKeyword, Combine, Empty, Forward, Group, Keyword, Literal,
-    OneOrMore, Opt, OpAssoc, ParserElement, ParseResults, Regex, Suppress, Word,
+    OneOrMore, Opt, OpAssoc, ParseFatalException, ParserElement, ParseResults, Regex, Suppress, Word,
     ZeroOrMore, alphanums, alphas, c_style_comment, delimited_list,
     line_end, one_of, printables, pyparsing_common, infix_notation,
     QuotedString, CharsNotIn, SkipTo
@@ -50,6 +50,11 @@ from .FormulaRuleSet import (
 # pyparsing's default identChars (alphanums + "_$") the keyword "in" matched the
 # start of "in-two", and the ~keyword guards then rejected that function name.
 _KEYWORD_IDENT_CHARS = alphanums + "_$-"
+
+
+# The keyword each result clause is written with, for reporting a repeated clause
+_RESULT_CLAUSE_KEYWORDS = {"message": "message", "severityClause": "severity",
+                           "ruleSuffix": "rule-suffix", "ruleFocus": "rule-focus"}
 
 
 def _keyword(word: str, caseless: bool = True) -> Keyword:
@@ -700,6 +705,21 @@ def _buildGrammar():
         + blockExpr.setResultsName("cond")
     ).setResultsName("where")
 
+    # ---- Result clauses: message, severity, rule-suffix, rule-focus, in any order ----
+    # The grammar's { QueryResult }: a rule's result clauses may come in any order, each
+    # at most once (a second message or severity would leave which one applies unclear).
+    def _checkResultClauses(s, loc, toks):
+        seen = set()
+        for clause in toks:
+            name = clause.get_name()
+            if name in seen:
+                raise ParseFatalException(s, loc, f"a rule has more than one {_RESULT_CLAUSE_KEYWORDS.get(name, name)} clause")
+            seen.add(name)
+
+    resultClauses = ZeroOrMore(
+        messageClause | severityClause | ruleSuffixClause | ruleFocusClause
+    ).addParseAction(_checkResultClauses)
+
     # ---- Rule name ----
     ruleName = simpleName
 
@@ -709,10 +729,7 @@ def _buildGrammar():
         + ruleName.setResultsName("name")
         + blockExpr.setResultsName("expr")
         + Opt(whereClause)
-        + Opt(messageClause)
-        + Opt(severityClause)
-        + Opt(ruleSuffixClause)
-        + Opt(ruleFocusClause)
+        + resultClauses
     ).setResultsName("outputRule").addParseAction(_tagStatement("outputRule"))
 
     # ---- Assert rule ----
@@ -722,10 +739,7 @@ def _buildGrammar():
         + Opt(satisfiedKw | unsatisfiedKw).setResultsName("polarity")
         + blockExpr.setResultsName("expr")
         + Opt(whereClause)
-        + Opt(messageClause)
-        + Opt(severityClause)
-        + Opt(ruleSuffixClause)
-        + Opt(ruleFocusClause)
+        + resultClauses
     ).setResultsName("assertRule").addParseAction(_tagStatement("assertRule"))
 
     # ---- Constant declaration ----
